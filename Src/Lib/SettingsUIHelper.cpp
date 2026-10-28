@@ -5,6 +5,7 @@
 #include <stdafx.h>
 #include "resource.h"
 #include "Settings.h"
+#include "SettingsAppearance.h"
 #include "SettingsUIHelper.h"
 #include "ResourceHelper.h"
 #include "ComHelper.h"
@@ -2799,10 +2800,46 @@ LRESULT CTreeSettingsDlg::OnCustomDraw( int idCtrl, LPNMHDR pnmh, BOOL& bHandled
 	}
 	else if (pDraw->nmcd.dwDrawStage==CDDS_ITEMPREPAINT)
 	{
-		TVITEM item={TVIF_IMAGE|TVIF_STATE,(HTREEITEM)pDraw->nmcd.dwItemSpec,0,TVIS_SELECTED};
+		wchar_t text[4096];
+		TVITEM item={TVIF_IMAGE|TVIF_STATE|TVIF_PARAM|TVIF_TEXT,(HTREEITEM)pDraw->nmcd.dwItemSpec,0,TVIS_SELECTED|TVIS_CUT|TVIS_BOLD|TVIS_OVERLAYMASK};
+		item.pszText=text; item.cchTextMax=_countof(text);
 		TreeView_GetItem(m_Tree,&item);
-		if ((item.state&TVIS_CUT) && (!(item.state&TVIS_SELECTED) || IsAppThemed()))
-			pDraw->clrText=GetSysColor(COLOR_GRAYTEXT);
+		CSetting *setting=(CSetting*)item.lParam;
+		RECT label; TreeView_GetItemRect(m_Tree,item.hItem,&label,TRUE);
+		RECT row; m_Tree.GetClientRect(&row);
+		int dpi=GetDpi(m_Tree);
+		auto scale=[dpi](int value) { return MulDiv(value,dpi,96); };
+		row.left=scale(4); row.right-=scale(6); row.top=label.top+scale(2); row.bottom=label.bottom-scale(2);
+		int saved=SaveDC(pDraw->nmcd.hdc);
+		SelectClipRgn(pDraw->nmcd.hdc,NULL);
+		RECT client; m_Tree.GetClientRect(&client);
+		IntersectClipRect(pDraw->nmcd.hdc,client.left,label.top,client.right,label.bottom);
+		FillRect(pDraw->nmcd.hdc,&client,SettingsAppearance::Brush());
+		SettingsAppearance::RoundRect(pDraw->nmcd.hdc,row,(item.state&TVIS_SELECTED)?SettingsAppearance::Selected:SettingsAppearance::Card,scale(12));
+		COLORREF color=(item.state&TVIS_CUT)?SettingsAppearance::Muted:SettingsAppearance::Text;
+		SetTextColor(pDraw->nmcd.hdc,color); SetBkMode(pDraw->nmcd.hdc,TRANSPARENT);
+		if (setting && setting->type==CSetting::TYPE_BOOL)
+		{
+			bool on=IsVariantTrue(setting->GetValue());
+			int height=scale(20), y=(row.top+row.bottom-height)/2;
+			RECT toggle={row.right-scale(54),y,row.right-scale(14),y+height};
+			SettingsAppearance::RoundRect(pDraw->nmcd.hdc,toggle,on?SettingsAppearance::Text:RGB(58,58,58),height);
+			int diameter=height-scale(6), x=on?toggle.right-diameter-scale(3):toggle.left+scale(3);
+			RECT knob={x,y+scale(3),x+diameter,y+scale(3)+diameter};
+			SettingsAppearance::RoundRect(pDraw->nmcd.hdc,knob,on?RGB(18,18,18):RGB(189,189,189),diameter);
+			label.right=toggle.left-scale(12);
+		}
+		else
+		{
+			HIMAGELIST images=TreeView_GetImageList(m_Tree,TVSIL_NORMAL);
+			int width,height; ImageList_GetIconSize(images,&width,&height);
+			ImageList_Draw(images,item.iImage,pDraw->nmcd.hdc,label.left-width-scale(3),(row.top+row.bottom-height)/2,ILD_TRANSPARENT|(item.state&TVIS_OVERLAYMASK));
+			label.right=row.right-scale(12);
+		}
+		DrawText(pDraw->nmcd.hdc,text,-1,&label,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+		if ((item.state&TVIS_SELECTED) && GetFocus()==m_Tree) { InflateRect(&row,-scale(4),-scale(2)); DrawFocusRect(pDraw->nmcd.hdc,&row); }
+		RestoreDC(pDraw->nmcd.hdc,saved);
+		return CDRF_SKIPDEFAULT;
 	}
 	return CDRF_DODEFAULT;
 }
@@ -2919,7 +2956,7 @@ LRESULT CTreeSettingsDlg::OnClick( int idCtrl, LPNMHDR pnmh, BOOL& bHandled )
 	DWORD pos=GetMessagePos();
 	TVHITTESTINFO test={{(short)LOWORD(pos),(short)HIWORD(pos)}};
 	m_Tree.ScreenToClient(&test.pt);
-	if (TreeView_HitTest(m_Tree,&test) && (test.flags&(TVHT_ONITEMICON|TVHT_ONITEMLABEL)))
+	if (TreeView_HitTest(m_Tree,&test) && (test.flags&(TVHT_ONITEMICON|TVHT_ONITEMLABEL|TVHT_ONITEMRIGHT)))
 		ToggleItem(test.hItem,GetKeyState(VK_CONTROL)<0);
 
 	return 0;

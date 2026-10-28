@@ -10,6 +10,7 @@
 #include "SkinManager.h"
 #include "FNVHash.h"
 #include "SettingsUIHelper.h"
+#include "SettingsAppearance.h"
 #include "LanguageSettingsHelper.h"
 #include "SettingsUI.h"
 #include "ResourceHelper.h"
@@ -3126,9 +3127,12 @@ LRESULT CCustomMenuDlg7::CItemList::OnCustomDraw( int idCtrl, LPNMHDR pnmh, BOOL
 	{
 		const CCustomMenuDlg7::MenuItem &menuItem=m_pOwner->m_Items[pDraw->nmcd.dwItemSpec];
 		if (menuItem.settings&StdMenuItem::MENU_ITEM_DISABLED)
-			pDraw->clrText=GetSysColor(COLOR_GRAYTEXT);
+			pDraw->clrText=SettingsAppearance::Muted;
 		if (m_pOwner->m_pSetting->IsLocked())
-			pDraw->clrTextBk=GetSysColor(COLOR_BTNFACE);
+		{
+			pDraw->clrText=SettingsAppearance::Muted;
+			pDraw->clrTextBk=SettingsAppearance::Card;
+		}
 		return CDRF_NOTIFYPOSTPAINT;
 	}
 	if (pDraw->nmcd.dwDrawStage==CDDS_ITEMPOSTPAINT)
@@ -3466,7 +3470,7 @@ void CCustomMenuDlg7::SetGroup( CSetting *pGroup, bool bReset )
 	tool.lpszText=(LPWSTR)(LPCWSTR)str;
 	::SendMessage(ListView_GetToolTips(m_List),TTM_UPDATETIPTEXT,0,(LPARAM)&tool);
 
-	ListView_SetBkColor(m_List,GetSysColor(m_pSetting->IsLocked()?COLOR_BTNFACE:COLOR_WINDOW));
+	ListView_SetBkColor(m_List,SettingsAppearance::Card);
 }
 
 LRESULT CCustomMenuDlg7::OnSize( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled )
@@ -3757,10 +3761,7 @@ LRESULT CMenuStyleDlg::OnInitDialog( UINT uMsg, WPARAM wParam, LPARAM lParam, BO
 	m_ImageClassic1=GetDlgItem(IDC_STATIC_CLASSIC);
 	m_ImageClassic2=GetDlgItem(IDC_STATIC_TWO_COLUMNS);
 	m_ImageWin7=GetDlgItem(IDC_STATIC_WIN7);
-	HDC hdc=::GetDC(NULL);
-	int dpi=GetDeviceCaps(hdc,LOGPIXELSY);
-	::ReleaseDC(NULL,hdc);
-	bool bLargeBitmaps=dpi>=144;
+	bool bLargeBitmaps=GetDpi(m_hWnd)>=144;
 	{
 		HBITMAP bmp=LoadImageResource(g_Instance,MAKEINTRESOURCE(bLargeBitmaps?IDB_STYLE_CLASSIC1150:IDB_STYLE_CLASSIC1),true,true);
 		m_ImageClassic1.SendMessage(STM_SETIMAGE,IMAGE_BITMAP,(LPARAM)bmp);
@@ -4462,6 +4463,10 @@ CSetting g_Settings[]={
 	{L"StartButtonText",CSetting::TYPE_STRING,IDS_BUTTON_TEXT,IDS_BUTTON_TEXT_TIP,L"$Menu.Start",0,L"#StartButtonType=1",L"ClasicButton"},
 
 {L"Taskbar",CSetting::TYPE_GROUP,IDS_TASKBAR_SETTINGS,0,0,CSetting::FLAG_BASIC},
+	{L"TaskbarRecycleBin",CSetting::TYPE_BOOL,IDS_TASK_RECYCLE,IDS_TASK_RECYCLE_TIP,1,CSetting::FLAG_CALLBACK},
+	{L"TaskbarEverything",CSetting::TYPE_BOOL,IDS_TASK_EVERYTHING,IDS_TASK_EVERYTHING_TIP,1,CSetting::FLAG_CALLBACK},
+	{L"TaskbarSearchWidth",CSetting::TYPE_INT,IDS_TASK_SEARCHWIDTH,IDS_TASK_SEARCHWIDTH_TIP,242,CSetting::FLAG_CALLBACK,L"TaskbarEverything"},
+	{L"TaskbarHideGrips",CSetting::TYPE_BOOL,IDS_TASK_HIDEGRIPS,IDS_TASK_HIDEGRIPS_TIP,1,CSetting::FLAG_CALLBACK},
 	{L"CustomTaskbar",CSetting::TYPE_BOOL,IDS_TASK_CUSTOM,IDS_TASK_CUSTOM_TIP,0,CSetting::FLAG_CALLBACK},
 	{L"TaskbarLook",CSetting::TYPE_INT,IDS_TASK_LOOK,IDS_TASK_LOOK_TIP,1,CSetting::FLAG_CALLBACK,L"CustomTaskbar",L"CustomTaskbar"},
 		{L"Opaque",CSetting::TYPE_RADIO,IDS_TASK_OPAQUE,IDS_TASK_OPAQUE_TIP},
@@ -5228,7 +5233,13 @@ void ClosingSettings( HWND hWnd, int flags, int command )
 
 void SettingChangedCallback( const CSetting *pSetting )
 {
-	if (wcscmp(pSetting->name,L"CustomTaskbar")==0 || wcscmp(pSetting->name,L"TaskbarLook")==0 || wcscmp(pSetting->name,L"TaskbarOpacity")==0 || wcscmp(pSetting->name,L"TaskbarColor")==0 || wcscmp(pSetting->name,L"TaskbarTextColor")==0)
+	if (wcscmp(pSetting->name,L"TaskbarRecycleBin")==0 || wcscmp(pSetting->name,L"TaskbarEverything")==0 || wcscmp(pSetting->name,L"TaskbarSearchWidth")==0 || wcscmp(pSetting->name,L"TaskbarHideGrips")==0)
+	{
+		UpdateTaskBars(TASKBAR_UPDATE);
+		g_bTaskbarsChanged=true;
+		g_bTaskbarsUpdated=true;
+	}
+	else if (wcscmp(pSetting->name,L"CustomTaskbar")==0 || wcscmp(pSetting->name,L"TaskbarLook")==0 || wcscmp(pSetting->name,L"TaskbarOpacity")==0 || wcscmp(pSetting->name,L"TaskbarColor")==0 || wcscmp(pSetting->name,L"TaskbarTextColor")==0)
 	{
 		UpdateTaskBars(TASKBAR_UPDATE);
 		UpdateTaskBars(TASKBAR_UPDATE_TEXTURE);

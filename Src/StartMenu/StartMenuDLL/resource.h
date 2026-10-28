@@ -3,6 +3,14 @@
 // Used by StartMenuDLL.rc
 //
 #define IDI_APPICON                     1
+#define IDS_TASK_RECYCLE                7112
+#define IDS_TASK_RECYCLE_TIP            7113
+#define IDS_TASK_EVERYTHING             7114
+#define IDS_TASK_EVERYTHING_TIP         7115
+#define IDS_TASK_SEARCHWIDTH            7116
+#define IDS_TASK_SEARCHWIDTH_TIP        7117
+#define IDS_TASK_HIDEGRIPS              7118
+#define IDS_TASK_HIDEGRIPS_TIP          7119
 #define IDI_APPSICON                    2
 #define IDI_APPSICON10                  3
 #define IDI_APPSICON11                  4

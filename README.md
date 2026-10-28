@@ -1,3 +1,28 @@
+# Open-Shell desktop customizations
+
+This fork adds a redesigned settings interface and compact taskbar controls to [Open-Shell](https://github.com/Open-Shell/Open-Shell-Menu). It is based on upstream **v4.4.198** and preserves the upstream history and MIT license.
+
+## Changes in this fork
+
+- Dark sidebar navigation, rounded settings rows, switches, and a white Save button, with formatting inspired by [Top Bar Revolution](https://github.com/WitherBlitz/Top-Bar-Revolution).
+- Shared settings presentation for the Start Menu, Classic Explorer, and Classic IE components, while preserving the existing editors, settings search, backup, and Save/Cancel behavior.
+- A compact native Recycle Bin taskbar button: click to open the bin; right-click for **Open** and **Empty**. Empty retains Windows' confirmation.
+- Controls for the existing [EverythingToolbar](https://github.com/srwi/EverythingToolbar) deskband's visibility and width. EverythingToolbar must already be installed and registered.
+- Optional removal of the classic taskbar's resize grips, including after Explorer refreshes its toolbar styles.
+- Window-based DPI sizing so Explorer-hosted settings use the same scale as their native controls and preview images.
+
+The taskbar integrations target the classic Windows 10 taskbar. They run inside Open-Shell's Explorer DLL and use its existing startup mechanism.
+
+## Build and verification
+
+See [native build and test instructions](tests/README.md). The fork includes executable widget tests and settings UI checks for navigation, DPI sizing, preview overlap, keyboard editing, and Save/Cancel persistence.
+
+The customization branch is `desktop-customizations`. Keep `upstream` pointed at `https://github.com/Open-Shell/Open-Shell-Menu.git` and use `origin` for this fork when cloning for development.
+
+The upstream download links below contain upstream binaries; they do not include this fork's changes. A signed installer for this fork has not been published.
+
+## Upstream project documentation
+
 <a href="#"><img src=/Src/Setup/OpenShell.ico width="80" align="left"/></a>
 
 

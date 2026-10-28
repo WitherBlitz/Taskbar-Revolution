@@ -6,6 +6,7 @@
 #include "resource.h"
 #include "Settings.h"
 #include "SettingsUIHelper.h"
+#include "SettingsAppearance.h"
 #include "ResourceHelper.h"
 #include "ComHelper.h"
 #include "FNVHash.h"
@@ -350,7 +351,8 @@ LRESULT CLanguageSettingsDlg::OnCustomDraw( int idCtrl, LPNMHDR pnmh, BOOL& bHan
 		bHandled=FALSE;
 		return 0;
 	}
-	pDraw->clrTextBk=GetSysColor(COLOR_BTNFACE);
+	pDraw->clrText=SettingsAppearance::Muted;
+	pDraw->clrTextBk=SettingsAppearance::Card;
 	return CDRF_DODEFAULT;
 }
 
@@ -393,7 +395,7 @@ void CLanguageSettingsDlg::SetGroup( CSetting *pGroup )
 		str=LoadStringEx(IDS_SETTING_LOCKED);
 	tool.lpszText=(LPWSTR)(LPCWSTR)str;
 	m_Tooltip.SendMessage(TTM_UPDATETIPTEXT,0,(LPARAM)&tool);
-	ListView_SetBkColor(list,GetSysColor(m_bLocked?COLOR_BTNFACE:COLOR_WINDOW));
+	ListView_SetBkColor(list,SettingsAppearance::Card);
 }
 
 class CLanguageSettingsPanel: public ISettingsPanel

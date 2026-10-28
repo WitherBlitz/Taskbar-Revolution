@@ -14,6 +14,7 @@
 #include "ResourceHelper.h"
 #include "LogManager.h"
 #include "TouchHelper.h"
+#include "TaskbarWidgets.h"
 #include "IatHookHelper.h"
 #include "dllmain.h"
 #include <uxtheme.h>
@@ -2119,6 +2120,10 @@ static LRESULT CALLBACK SubclassDesktopButtonProc( HWND hWnd, UINT uMsg, WPARAM 
 
 static LRESULT CALLBACK SubclassRebarProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData )
 {
+	if (uMsg==RB_SETBANDINFOW || uMsg==RB_SETBANDINFOA)
+		FilterTaskbarBandInfo(GetParent(hWnd),hWnd,(UINT)wParam,(REBARBANDINFO*)lParam);
+	if (uMsg==WM_WINDOWPOSCHANGING)
+		PrepareTaskbarWidgetPosition(GetParent(hWnd),hWnd,(WINDOWPOS*)lParam);
 	if (uMsg==WM_WINDOWPOSCHANGING)
 	{
 		const TaskbarInfo *taskBar=GetTaskbarInfo((int)dwRefData);
@@ -2178,6 +2183,8 @@ static LRESULT CALLBACK SubclassRebarProc( HWND hWnd, UINT uMsg, WPARAM wParam, 
 			}
 		}
 	}
+	if (uMsg==WM_WINDOWPOSCHANGING)
+		PositionTaskbarWidget(GetParent(hWnd),hWnd,(WINDOWPOS*)lParam);
 	if (uMsg==WM_PAINT || uMsg==WM_PRINT || uMsg==WM_PRINTCLIENT)
 	{
 		g_CurrentRebar=hWnd;
@@ -2491,6 +2498,7 @@ void UpdateTaskBars( TUpdateTaskbar update )
 	for (id_taskbar_map::iterator it=g_TaskbarInfos.begin();it!=g_TaskbarInfos.end();++it)
 	{
 		TaskbarInfo &taskBar=it->second;
+		UpdateTaskbarWidgets(taskBar.taskBar,taskBar.rebar,update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarRecycleBin"),GetSettingBool(L"TaskbarEverything"),GetSettingInt(L"TaskbarSearchWidth"),update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarHideGrips"),update==TASKBAR_CLEAR);
 		bool bButton2=bButton && (bAll || taskBar.taskBar==g_TaskBar);
 		bool bHideButton2=bButton;
 		if (taskBar.oldButton)

@@ -7,6 +7,7 @@
 #include "Settings.h"
 #include "SettingsParser.h"
 #include "SettingsUIHelper.h"
+#include "SettingsAppearance.h"
 #include "ResourceHelper.h"
 #include "StringUtils.h"
 #include "FNVHash.h"
@@ -1108,6 +1109,7 @@ void CSettingsManager::ResetImageList( void )
 class CSettingsDlg: public CResizeableDlg<CSettingsDlg>
 {
 public:
+	enum { IDC_NAVIGATION=30011 };
 	CSettingsDlg( void );
 	void Init( CSetting *pSettings, ICustomSettings *pCustom, int tab, const wchar_t* appId );
 
@@ -1119,11 +1121,15 @@ public:
 		MESSAGE_HANDLER( WM_KEYDOWN, OnKeyDown )
 		MESSAGE_HANDLER( WM_SYSCOMMAND, OnSysCommand )
 		MESSAGE_HANDLER( WM_CLEAR, OnResetUI )
+		MESSAGE_HANDLER( WM_PAINT, OnPaint )
+		MESSAGE_HANDLER( WM_PRINTCLIENT, OnPaint )
+		MESSAGE_HANDLER( WM_DRAWITEM, OnDrawItem )
 		COMMAND_HANDLER( IDOK, BN_CLICKED, OnOK )
 		COMMAND_HANDLER( IDCANCEL, BN_CLICKED, OnCancel )
 		COMMAND_HANDLER( IDC_BUTTONBACKUP, BN_CLICKED, OnBackup )
 		COMMAND_HANDLER( IDC_CHECKALL, BN_CLICKED, OnCheckAll )
 		COMMAND_HANDLER( IDC_EDITSEARCH, EN_CHANGE, OnSearchChange )
+		COMMAND_HANDLER( IDC_NAVIGATION, LBN_SELCHANGE, OnNavigation )
 		NOTIFY_HANDLER( IDC_TABSETTINGS, TCN_SELCHANGING, OnSelChanging )
 		NOTIFY_HANDLER( IDC_TABSETTINGS, TCN_SELCHANGE, OnSelChange )
 		NOTIFY_HANDLER( IDC_BUTTONBACKUP, BCN_DROPDOWN, OnDropDown )
@@ -1156,9 +1162,13 @@ protected:
 	LRESULT OnInitDialog( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
 	LRESULT OnDestroy( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
 	LRESULT OnSize( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
+	LRESULT OnGetMinMaxInfo( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
 	LRESULT OnKeyDown( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
 	LRESULT OnSysCommand( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
 	LRESULT OnResetUI( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
+	LRESULT OnPaint( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
+	LRESULT OnDrawItem( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
+	LRESULT OnNavigation( WORD wNotifyCode, WORD wID, HWND hWndCtl, BOOL& bHandled );
 	LRESULT OnOK( WORD wNotifyCode, WORD wID, HWND hWndCtl, BOOL& bHandled );
 	LRESULT OnCancel( WORD wNotifyCode, WORD wID, HWND hWndCtl, BOOL& bHandled );
 	LRESULT OnBackup( WORD wNotifyCode, WORD wID, HWND hWndCtl, BOOL& bHandled );
@@ -1175,6 +1185,12 @@ private:
 	CSetting *m_pSettings;
 	ICustomSettings *m_pCustom;
 	CWindow m_Tabs;
+	CWindow m_Navigation;
+	HFONT m_Font=NULL, m_TitleFont=NULL;
+	int m_Dpi=96;
+	int Scale( int value ) const { return MulDiv(value,m_Dpi,96); }
+	RECT ContentRect( void ) const;
+	void Layout( void );
 	int m_Index;
 	HWND m_Panel;
 	int m_InitialTab;
@@ -1364,6 +1380,15 @@ LRESULT CSettingsDlg::OnInitDialog( UINT uMsg, WPARAM wParam, LPARAM lParam, BOO
 
 	SIZE maxSize={0,0};
 	m_Tabs=GetDlgItem(IDC_TABSETTINGS);
+	m_Tabs.ShowWindow(SW_HIDE);
+	m_Dpi=GetDpi(m_hWnd);
+	m_Font=CreateFont(-MulDiv(10,m_Dpi,72),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Segoe UI");
+	m_TitleFont=CreateFont(-MulDiv(18,m_Dpi,72),0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Segoe UI");
+	m_Navigation.Create(L"LISTBOX",m_hWnd,NULL,L"Settings categories",WS_CHILD|WS_VISIBLE|WS_VSCROLL|WS_TABSTOP|LBS_NOTIFY|LBS_HASSTRINGS|LBS_OWNERDRAWFIXED|LBS_NOINTEGRALHEIGHT,0,IDC_NAVIGATION);
+	m_Navigation.SendMessage(LB_SETITEMHEIGHT,0,Scale(38));
+	backup.SetWindowLong(GWL_STYLE,(backup.GetWindowLong(GWL_STYLE)&~BS_TYPEMASK)|BS_PUSHBUTTON);
+	SetDlgItemText(IDOK,L"Save");
+	GetDlgItem(IDC_ICONSEARCH).ShowWindow(SW_HIDE);
 	m_Panel=NULL;
 	int idx=0;
 	for (const CSetting *pSetting=m_pSettings;pSetting->name;pSetting++)
@@ -1381,9 +1406,7 @@ LRESULT CSettingsDlg::OnInitDialog( UINT uMsg, WPARAM wParam, LPARAM lParam, BOO
 			maxSize.cy=rc.bottom-rc.top;
 	}
 
-	RECT rc;
-	m_Tabs.GetWindowRect(&rc);
-	TabCtrl_AdjustRect(m_Tabs,FALSE,&rc);
+	RECT rc=ContentRect();
 	int dx=maxSize.cx-(rc.right-rc.left);
 	int dy=maxSize.cy-(rc.bottom-rc.top);
 	if (dx<0) dx=0;
@@ -1417,6 +1440,18 @@ LRESULT CSettingsDlg::OnInitDialog( UINT uMsg, WPARAM wParam, LPARAM lParam, BOO
 		if (pos.maximized)
 			ShowWindow(SW_MAXIMIZE);
 	}
+	SettingsAppearance::Apply(m_hWnd,m_Font);
+	MONITORINFO monitor={sizeof(monitor)};
+	if (GetMonitorInfo(MonitorFromWindow(m_hWnd,MONITOR_DEFAULTTONEAREST),&monitor) && !IsZoomed())
+	{
+		RECT bounds; GetWindowRect(&bounds);
+		int width=min(bounds.right-bounds.left,monitor.rcWork.right-monitor.rcWork.left);
+		int height=min(bounds.bottom-bounds.top,monitor.rcWork.bottom-monitor.rcWork.top);
+		int x=max(monitor.rcWork.left,min(bounds.left,monitor.rcWork.right-width));
+		int y=max(monitor.rcWork.top,min(bounds.top,monitor.rcWork.bottom-height));
+		SetWindowPos(NULL,x,y,width,height,SWP_NOZORDER|SWP_NOACTIVATE);
+	}
+	Layout();
 
 	return TRUE;
 }
@@ -1424,6 +1459,8 @@ LRESULT CSettingsDlg::OnInitDialog( UINT uMsg, WPARAM wParam, LPARAM lParam, BOO
 LRESULT CSettingsDlg::OnDestroy( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled )
 {
 	RemoveWindowSubclass(GetDlgItem(IDC_EDITSEARCH),SubclassSearchBoxProc,'CLSH');
+	DeleteObject(m_Font); m_Font=NULL;
+	DeleteObject(m_TitleFont); m_TitleFont=NULL;
 	bHandled=FALSE;
 #ifdef _DEBUG
 	g_bUIThread=false;
@@ -1445,6 +1482,7 @@ bool CSettingsDlg::IsVisible( const CSetting *pSetting ) const
 void CSettingsDlg::AddTabs( int name, const CSetting *pSelect )
 {
 	TabCtrl_DeleteAllItems(m_Tabs);
+	m_Navigation.SendMessage(LB_RESETCONTENT);
 	int idx=0;
 	if (pSelect)
 	{
@@ -1474,6 +1512,7 @@ void CSettingsDlg::AddTabs( int name, const CSetting *pSelect )
 		CString str=LoadStringEx(m_FilterText.IsEmpty()?pSetting->nameID:IDS_SETTING_SEARCH);
 		TCITEM tab={TCIF_PARAM|TCIF_TEXT,0,0,(LPWSTR)(LPCWSTR)str,0,0,(LPARAM)pSetting};
 		int i=TabCtrl_InsertItem(m_Tabs,1000,&tab);
+		m_Navigation.SendMessage(LB_ADDSTRING,0,(LPARAM)(LPCWSTR)str);
 		if (pSetting->nameID==name)
 			idx=i;
 	}
@@ -1486,11 +1525,101 @@ void CSettingsDlg::AddTabs( int name, const CSetting *pSelect )
 LRESULT CSettingsDlg::OnSize( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled )
 {
 	CResizeableDlg<CSettingsDlg>::OnSize();
-	RECT rc;
-	m_Tabs.GetWindowRect(&rc);
-	::MapWindowPoints(NULL,m_hWnd,(POINT*)&rc,2);
-	TabCtrl_AdjustRect(m_Tabs,FALSE,&rc);
-	if (m_Panel) ::SetWindowPos(m_Panel,HWND_TOP,rc.left,rc.top,rc.right-rc.left,rc.bottom-rc.top,0);
+	if (m_Navigation) Layout();
+	return 0;
+}
+
+RECT CSettingsDlg::ContentRect( void ) const
+{
+	RECT rc; GetClientRect(&rc);
+	rc.left=Scale(252); rc.top=Scale(126);
+	rc.right-=Scale(24); rc.bottom-=Scale(82);
+	return rc;
+}
+
+LRESULT CSettingsDlg::OnGetMinMaxInfo( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled )
+{
+	CResizeableDlg<CSettingsDlg>::OnGetMinMaxInfo(uMsg,wParam,lParam,bHandled);
+	MONITORINFO monitor={sizeof(monitor)};
+	if (GetMonitorInfo(MonitorFromWindow(m_hWnd,MONITOR_DEFAULTTONEAREST),&monitor))
+	{
+		MINMAXINFO *info=(MINMAXINFO*)lParam;
+		info->ptMinTrackSize.x=min(info->ptMinTrackSize.x,monitor.rcWork.right-monitor.rcWork.left);
+		info->ptMinTrackSize.y=min(info->ptMinTrackSize.y,monitor.rcWork.bottom-monitor.rcWork.top);
+	}
+	return 0;
+}
+
+void CSettingsDlg::Layout( void )
+{
+	RECT rc; GetClientRect(&rc);
+	int width=rc.right, height=rc.bottom;
+	m_Navigation.SetWindowPos(NULL,Scale(16),Scale(126),Scale(204),max(Scale(100),height-Scale(208)),SWP_NOZORDER);
+	GetDlgItem(IDC_EDITSEARCH).SetWindowPos(NULL,Scale(252),Scale(78),max(Scale(160),width-Scale(510)),Scale(28),SWP_NOZORDER);
+	GetDlgItem(IDC_CHECKALL).SetWindowPos(NULL,width-Scale(232),Scale(78),Scale(208),Scale(28),SWP_NOZORDER);
+	GetDlgItem(IDC_LINKHELP).SetWindowPos(NULL,width-Scale(78),Scale(26),Scale(54),Scale(20),SWP_NOZORDER);
+	GetDlgItem(IDC_LINKWEB).SetWindowPos(NULL,Scale(24),height-Scale(42),Scale(200),Scale(22),SWP_NOZORDER);
+	GetDlgItem(IDC_SYSLINKLOC).SetWindowPos(NULL,Scale(252),height-Scale(30),Scale(240),Scale(18),SWP_NOZORDER);
+	GetDlgItem(IDC_BUTTONBACKUP).SetWindowPos(NULL,Scale(252),height-Scale(56),Scale(110),Scale(36),SWP_NOZORDER);
+	GetDlgItem(IDCANCEL).SetWindowPos(NULL,width-Scale(244),height-Scale(56),Scale(100),Scale(36),SWP_NOZORDER);
+	GetDlgItem(IDOK).SetWindowPos(NULL,width-Scale(132),height-Scale(56),Scale(108),Scale(36),SWP_NOZORDER);
+	if (m_Panel)
+	{
+		RECT panel=ContentRect();
+		::SetWindowPos(m_Panel,HWND_TOP,panel.left,panel.top,panel.right-panel.left,panel.bottom-panel.top,SWP_NOACTIVATE);
+	}
+	InvalidateRect(NULL,FALSE);
+}
+
+LRESULT CSettingsDlg::OnPaint( UINT message, WPARAM wParam, LPARAM, BOOL& )
+{
+	using namespace SettingsAppearance;
+	PAINTSTRUCT paint; HDC dc=message==WM_PRINTCLIENT?(HDC)wParam:BeginPaint(&paint);
+	RECT rect; GetClientRect(&rect); FillRect(dc,&rect,Brush());
+	SetBkMode(dc,TRANSPARENT); SetTextColor(dc,Text);
+	HGDIOBJ old=SelectObject(dc,m_TitleFont);
+	RECT title={Scale(24),Scale(18),Scale(230),Scale(54)};
+	DrawText(dc,L"Settings",-1,&title,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+	SelectObject(dc,m_Font); SetTextColor(dc,Muted);
+	RECT section={Scale(28),Scale(84),Scale(220),Scale(112)};
+	DrawText(dc,L"PERSONALIZE",-1,&section,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+	RECT chip={Scale(252),Scale(24),Scale(366),Scale(49)};
+	RoundRect(dc,chip,Selected,Scale(24)); SetTextColor(dc,Text);
+	DrawText(dc,L"OPEN-SHELL",-1,&chip,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+	RECT line={0,Scale(64),rect.right,Scale(65)}; FillRect(dc,&line,Brush(true));
+	line={Scale(236),Scale(65),Scale(237),rect.bottom-Scale(76)}; FillRect(dc,&line,Brush(true));
+	line={0,rect.bottom-Scale(76),rect.right,rect.bottom-Scale(75)}; FillRect(dc,&line,Brush(true));
+	SelectObject(dc,old);
+	if (message!=WM_PRINTCLIENT) EndPaint(&paint);
+	return 0;
+}
+
+LRESULT CSettingsDlg::OnDrawItem( UINT, WPARAM, LPARAM lParam, BOOL& bHandled )
+{
+	DRAWITEMSTRUCT *draw=(DRAWITEMSTRUCT*)lParam;
+	if (draw->CtlID!=IDC_NAVIGATION || draw->itemID==(UINT)-1) { bHandled=FALSE; return 0; }
+	using namespace SettingsAppearance;
+	FillRect(draw->hDC,&draw->rcItem,Brush());
+	RECT rect=draw->rcItem; InflateRect(&rect,-2,-2);
+	if (draw->itemState&ODS_SELECTED) RoundRect(draw->hDC,rect,Selected,Scale(12));
+	wchar_t text[256]; m_Navigation.SendMessage(LB_GETTEXT,draw->itemID,(LPARAM)text);
+	HGDIOBJ old=SelectObject(draw->hDC,m_Font); SetBkMode(draw->hDC,TRANSPARENT);
+	SetTextColor(draw->hDC,(draw->itemState&ODS_SELECTED)?Text:RGB(213,213,213));
+	rect.left+=Scale(12); rect.right-=Scale(8);
+	DrawText(draw->hDC,text,-1,&rect,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
+	if (draw->itemState&ODS_FOCUS) DrawFocusRect(draw->hDC,&rect);
+	SelectObject(draw->hDC,old);
+	return TRUE;
+}
+
+LRESULT CSettingsDlg::OnNavigation( WORD, WORD, HWND, BOOL& )
+{
+	int index=(int)m_Navigation.SendMessage(LB_GETCURSEL);
+	if (index>=0 && IsTabValid())
+	{
+		TabCtrl_SetCurSel(m_Tabs,index); SetCurTab(index,false); m_Navigation.SetFocus();
+	}
+	else m_Navigation.SendMessage(LB_SETCURSEL,m_Index);
 	return 0;
 }
 
@@ -1773,17 +1902,17 @@ void CSettingsDlg::SetCurTab( int index, bool bReset, const CSetting *pSelect )
 	CSetting *pGroup=(CSetting*)tab.lParam;
 	ISettingsPanel *pPanel=pGroup->pPanel;
 	if (!pPanel) pPanel=GetDefaultSettings(&m_FilterText,pSelect);
-	RECT rc;
-	m_Tabs.GetWindowRect(&rc);
-	::MapWindowPoints(NULL,m_hWnd,(POINT*)&rc,2);
-	TabCtrl_AdjustRect(m_Tabs,FALSE,&rc);
+	RECT rc=ContentRect();
 	HWND hwnd=pPanel->Activate(pGroup,rc,bReset);
+	m_Navigation.SendMessage(LB_SETCURSEL,index);
+	SettingsAppearance::Apply(hwnd,m_Font);
 	if (hwnd!=m_Panel)
 	{
 		if (m_Panel) ::ShowWindow(m_Panel,SW_HIDE);
 		m_Panel=hwnd;
 		::SetFocus(m_Panel);
 	}
+	Layout();
 }
 
 LRESULT CSettingsDlg::OnSelChanging( int idCtrl, LPNMHDR pnmh, BOOL& bHandled )
