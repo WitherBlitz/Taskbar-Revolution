@@ -9,6 +9,8 @@ This fork adds a redesigned settings interface and compact taskbar controls to [
 - A compact native Recycle Bin taskbar button: click to open the bin; right-click for **Open** and **Empty**. Empty retains Windows' confirmation.
 - Controls for the existing [EverythingToolbar](https://github.com/srwi/EverythingToolbar) deskband's visibility and width. EverythingToolbar must already be installed and registered.
 - Optional removal of the classic taskbar's resize grips, including after Explorer refreshes its toolbar styles.
+- **End task** on taskbar buttons: right-click a running app and an End task row appears next to its menu. It force-ends the app and its child processes; apps running as administrator ask for approval first. Ending File Explorer restarts the shell.
+- Typing while the Start menu is open always goes to the search box, so letters no longer trigger items such as Sleep or Restart. Alt+letter still uses the item shortcuts.
 - Window-based DPI sizing so Explorer-hosted settings use the same scale as their native controls and preview images.
 
 The taskbar integrations target the classic Windows 10 taskbar. They run inside Open-Shell's Explorer DLL and use its existing startup mechanism.

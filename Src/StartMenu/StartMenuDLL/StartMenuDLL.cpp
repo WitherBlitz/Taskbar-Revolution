@@ -15,6 +15,7 @@
 #include "LogManager.h"
 #include "TouchHelper.h"
 #include "TaskbarWidgets.h"
+#include "TaskbarEndTask.h"
 #include "IatHookHelper.h"
 #include "dllmain.h"
 #include <uxtheme.h>
@@ -2499,6 +2500,7 @@ void UpdateTaskBars( TUpdateTaskbar update )
 	{
 		TaskbarInfo &taskBar=it->second;
 		UpdateTaskbarWidgets(taskBar.taskBar,taskBar.rebar,update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarRecycleBin"),GetSettingBool(L"TaskbarEverything"),GetSettingInt(L"TaskbarSearchWidth"),update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarHideGrips"),update==TASKBAR_CLEAR);
+		UpdateTaskbarEndTask(taskBar.taskBar,update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarEndTask"));
 		bool bButton2=bButton && (bAll || taskBar.taskBar==g_TaskBar);
 		bool bHideButton2=bButton;
 		if (taskBar.oldButton)

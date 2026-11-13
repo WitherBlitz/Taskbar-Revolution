@@ -6111,6 +6111,16 @@ LRESULT CMenuContainer::OnSysKeyDown( UINT uMsg, WPARAM wParam, LPARAM lParam, B
 
 LRESULT CMenuContainer::OnChar( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled )
 {
+	// Typing in the main menu starts a search instead of running item shortcuts like Sleep or Restart.
+	// Alt+letter still uses the shortcuts.
+	if (uMsg==WM_CHAR && !(HIWORD(lParam)&KF_ALTDOWN) && wParam>=32 && wParam!=127 && !m_bSubMenu && m_SearchIndex>=0 && m_SearchBox.m_hWnd && m_SearchBox.IsWindowVisible())
+	{
+		CloseSubMenus(CLOSE_KEEP_MODE,this);
+		ActivateItem(m_SearchIndex,ACTIVATE_SELECT,NULL);
+		m_SearchBox.SendMessage(WM_CHAR,wParam,lParam);
+		return 0;
+	}
+
 	if (!GetSettingBool(L"EnableAccelerators"))
 		return TRUE;
 

@@ -1310,6 +1310,8 @@ BEGIN
     IDS_TASK_SEARCHWIDTH_TIP "Width of the Everything search bar in pixels, from 120 to 600."
     IDS_TASK_HIDEGRIPS      "Hide taskbar resize grips"
     IDS_TASK_HIDEGRIPS_TIP  "Remove the double-line toolbar resize handles and the space they occupy. Turn this off when you want to rearrange your toolbars."
+    IDS_TASK_ENDTASK        "End task on taskbar buttons"
+    IDS_TASK_ENDTASK_TIP    "Right-click a running app on the taskbar to get an End task button next to its menu. End task closes the app right away without asking to save your work."
     IDS_TASK_TEXTCOLOR      "Taskbar text color (RRGGBB)"
     IDS_TASK_TEXTCOLOR_TIP  "Select the color for the text on the taskbar"
     IDS_SELECT_LAST         "Select the last item in shutdown menu"
