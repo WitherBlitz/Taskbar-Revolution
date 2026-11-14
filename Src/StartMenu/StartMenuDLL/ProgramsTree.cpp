@@ -902,6 +902,13 @@ void CProgramsTree::GetFolderItems( std::vector<CTreeItem*> &items, HTREEITEM hP
 			}
 		}
 	}
+	else if (CMenuContainer::IsRemoteMenu())
+	{
+		// a remote PC's Start menu: all its programs are in one folder
+		CComPtr<IShellItem> pRoot;
+		if (SUCCEEDED(SHCreateItemFromParsingName(CMenuContainer::s_RemoteRoot,NULL,IID_IShellItem,(void**)&pRoot)))
+			AddFirstFolder(items,pRoot,true);
+	}
 	else
 	{
 		CComPtr<IShellItem> pRoot;

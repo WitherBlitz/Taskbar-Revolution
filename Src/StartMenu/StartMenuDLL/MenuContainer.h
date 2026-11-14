@@ -332,7 +332,11 @@ public:
 	static bool IsMenuWindow( HWND hWnd );
 	static bool IgnoreTaskbarTimers( void ) { return !s_Menus.empty() && (s_TaskbarState&ABS_AUTOHIDE); }
 	static HWND ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPrograms );
-	static HWND ToggleFolderMenu( int taskbarId, HWND anchor, const wchar_t *folder ); // a menu of one folder, opened above a taskbar button, drawn with the Start menu's skin
+	// The Start menu of a remote PC, opened above its red Start button: its programs and search come from one folder
+	static HWND ToggleRemoteMenu( int taskbarId, HWND anchor, const wchar_t *name, const wchar_t *folder );
+	static CString s_RemoteRoot; // the remote PC's Start menu folder while its menu is open
+	static CString s_RemoteName;
+	static bool IsRemoteMenu( void ) { return !s_RemoteRoot.IsEmpty(); }
 	static bool ProcessMouseMessage( HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam );
 	static void RefreshIcons( void );
 	static void RefreshSearch( void );

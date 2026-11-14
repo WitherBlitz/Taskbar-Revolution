@@ -404,12 +404,15 @@ static TaskbarInfo *FindTaskBarInfoBar( HWND bar )
 	return NULL;
 }
 
-// A red Start button opens its remote PC's Start menu as an Open-Shell menu
+// A red Start button opens its remote PC's Start menu, laid out like the Open-Shell Start menu
 static void OpenRemoteStartMenu( HWND taskbar, HWND button, const wchar_t *folder )
 {
 	TaskbarInfo *taskBar=FindTaskBarInfoBar(taskbar);
-	if (taskBar)
-		CMenuContainer::ToggleFolderMenu(taskBar->taskbarId,button,folder);
+	if (!taskBar) return;
+	// the folder is ...\RemoteAppLaunchers\<PC>\Start Menu
+	CString pc=folder;
+	PathRemoveFileSpec(pc.GetBuffer()); pc.ReleaseBuffer();
+	CMenuContainer::ToggleRemoteMenu(taskBar->taskbarId,button,PathFindFileName(pc),folder);
 }
 
 static LRESULT CALLBACK HookProgManThread( int code, WPARAM wParam, LPARAM lParam );

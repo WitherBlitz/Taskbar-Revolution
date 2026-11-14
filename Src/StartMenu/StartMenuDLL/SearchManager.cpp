@@ -130,6 +130,27 @@ void CSearchManager::BeginSearch( const CString &searchText )
 		m_SearchRequest.bPinnedFolder=(GetSettingInt(L"PinnedPrograms")==PINNED_PROGRAMS_PINNED);
 		m_SearchRequest.searchText=searchText;
 		m_SearchRequest.autoCompletePath=ParseAutoCompletePath(searchText);
+		m_SearchRequest.remoteRoot=CMenuContainer::s_RemoteRoot;
+		if (!m_SearchRequest.remoteRoot.IsEmpty())
+		{
+			// a remote PC's Start menu finds only that PC's programs, nothing from this PC
+			m_SearchRequest.bSearchPath=false;
+			m_SearchRequest.bSearchMetroApps=false;
+			m_SearchRequest.bSearchMetroSettings=false;
+			m_SearchRequest.bSearchSettings=false;
+			m_SearchRequest.bSearchFiles=false;
+			m_SearchRequest.bSearchMetadata=false;
+			m_SearchRequest.bSearchTypes=false;
+			m_SearchRequest.bPinnedFolder=false;
+			m_SearchRequest.autoCompletePath.Empty();
+		}
+		if (m_SearchRequest.remoteRoot!=m_LastRemoteRoot)
+		{
+			// don't show the other menu's results while this one's are found
+			m_ProgramItemsOld.clear();
+			m_SettingsItemsOld.clear();
+			m_LastRemoteRoot=m_SearchRequest.remoteRoot;
+		}
 	}
 	SetEvent(m_SearchEvent);
 }
@@ -617,7 +638,17 @@ void CSearchManager::SearchThread( void )
 				{
 					CMenuContainer::RefreshSearch();
 				}
+				if (!searchRequest.remoteRoot.IsEmpty())
+				{
+					// a remote PC's programs
+					CComPtr<IShellItem> pFolder;
+					if (SUCCEEDED(SHCreateItemFromParsingName(searchRequest.remoteRoot,NULL,IID_IShellItem,(void**)&pFolder)))
+						CollectSearchItems(pFolder,COLLECT_RECURSIVE|COLLECT_NOREFRESH,CATEGORY_PROGRAM,searchRequest);
+					if (searchRequest.requestId<m_LastProgramsRequestId)
+						continue;
+				}
 				// collect programs from the start menu
+				else
 				{
 					CComPtr<IShellItem> pFolder;
 					if (SUCCEEDED(ShGetKnownFolderItem(FOLDERID_StartMenu,&pFolder)))
@@ -627,7 +658,7 @@ void CSearchManager::SearchThread( void )
 				}
 
 				// common start menu
-				if (!searchRequest.bNoCommonFolders)
+				if (!searchRequest.bNoCommonFolders && searchRequest.remoteRoot.IsEmpty())
 				{
 					CComPtr<IShellItem> pFolder;
 					if (SUCCEEDED(ShGetKnownFolderItem(FOLDERID_CommonStartMenu,&pFolder)))
@@ -650,6 +681,7 @@ void CSearchManager::SearchThread( void )
 				}
 
 				// games
+				if (searchRequest.remoteRoot.IsEmpty())
 				{
 					CComPtr<IShellItem> pFolder;
 					if (SUCCEEDED(ShGetKnownFolderItem(FOLDERID_Games,&pFolder)))

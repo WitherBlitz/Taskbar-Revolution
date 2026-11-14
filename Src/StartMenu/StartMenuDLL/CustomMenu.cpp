@@ -365,11 +365,44 @@ L"ShutdownItem.Tip=$Menu.ShutdownTip\n"
 L"ShutdownItem.Icon=none\n"
 ;
 
+// A remote PC's Start menu: its programs, a search box and an item for the whole PC. No power button or local folders.
+static CString RemoteMenuText( TMenuStyle menuStyle )
+{
+	CString text;
+	text.Format(L"Items=%sRemoteProgramsMenu, SearchBoxItem, %sRemotePcItem%s\n"
+		L"RemoteProgramsMenu.Command=programs\n"
+		L"RemoteProgramsMenu.Label=$Menu.Programs\n"
+		L"RemoteProgramsMenu.Tip=$Menu.ProgramsTip\n"
+		L"RemoteProgramsMenu.Icon=%s\n"
+		L"RemoteProgramsMenu.Settings=ITEMS_FIRST\n"
+		L"RemoteProgramsMenu.Items=\n"
+		L"SearchBoxItem.Command=search_box\n"
+		L"SearchBoxItem.Label=Search %s\n"
+		L"SearchBoxItem.Icon=none\n"
+		L"SearchBoxItem.Settings=OPEN_UP\n"
+		L"RemotePcItem.Link=%s\n"
+		L"RemotePcItem.Label=%s\n"
+		L"RemotePcItem.Tip=Everything in the Start menu of %s\n"
+		L"RemotePcItem.Icon=imageres.dll,104\n",
+		menuStyle==MENU_WIN7?L"COLUMN_PADDING, ":L"",
+		menuStyle==MENU_WIN7?L"COLUMN_BREAK, ":L"SEPARATOR, ",
+		menuStyle==MENU_WIN7?L", COLUMN_PADDING":L"",
+		menuStyle==MENU_WIN7?L"none":L"shell32.dll,326",
+		(const wchar_t*)CMenuContainer::s_RemoteName,
+		(const wchar_t*)CMenuContainer::s_RemoteRoot,
+		(const wchar_t*)CMenuContainer::s_RemoteName,
+		(const wchar_t*)CMenuContainer::s_RemoteName);
+	return text;
+}
+
 const StdMenuItem *ParseCustomMenu( unsigned int &rootSettings )
 {
 	TMenuStyle menuStyle=(TMenuStyle)GetSettingInt(L"MenuStyle");
+	bool bRemote=CMenuContainer::IsRemoteMenu();
 	CString menuText;
-	if (menuStyle==MENU_CLASSIC1)
+	if (bRemote)
+		menuText=RemoteMenuText(menuStyle);
+	else if (menuStyle==MENU_CLASSIC1)
 		menuText=GetSettingString(L"MenuItems1");
 	else if (menuStyle==MENU_CLASSIC2)
 		menuText=GetSettingString(L"MenuItems2");
@@ -383,7 +416,7 @@ const StdMenuItem *ParseCustomMenu( unsigned int &rootSettings )
 
 	if (hash!=g_MenuItemsHash)
 	{
-		if (GetSettingInt(L"MenuStyle")==MENU_WIN7)
+		if (GetSettingInt(L"MenuStyle")==MENU_WIN7 && !bRemote)
 		{
 			wchar_t buf[16384];
 			int len=Strcpy(buf,_countof(buf),g_StartMenuItems7a);

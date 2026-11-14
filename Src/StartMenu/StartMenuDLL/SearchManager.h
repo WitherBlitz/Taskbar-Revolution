@@ -111,6 +111,7 @@ private:
 	bool m_bInitialized;
 
 	CString m_SearchText;
+	CString m_LastRemoteRoot; // LOCK_DATA, where the previous search's programs came from
 	CString m_AutoCompletePath;
 
 	volatile int m_LastRequestId;
@@ -133,6 +134,7 @@ private:
 		bool bUseRanks;
 		bool bNoCommonFolders;
 		bool bPinnedFolder;
+		CString remoteRoot; // a remote PC's Start menu: search only its programs
 		DWORD searchTime;
 		CString searchText;
 		CString autoCompletePath;
