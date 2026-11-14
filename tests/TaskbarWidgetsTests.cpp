@@ -2,6 +2,9 @@
 #include "TaskbarWidgets.h"
 #include "RemoteStartMenu.h"
 #include <cstdio>
+#include <algorithm>
+#include <map>
+#include <set>
 #include <oleacc.h>
 #pragma comment(linker,"\"/manifestdependency:type='Win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
@@ -21,6 +24,14 @@ static void Check( bool passed, const char *name )
 int main( int argc, char **argv )
 {
 	CoInitialize(NULL);
+	if (argc>1 && strcmp(argv[1],"--remote-probe")==0)
+	{
+		ConnectedRemoteMenus(); Sleep(3000); // the first call starts looking up the PCs' addresses
+		RemoteMenuList connected=ConnectedRemoteMenus();
+		printf("Connected remote PCs with a Start menu: %d\n",(int)connected.size());
+		for (const auto &menu:connected) printf("  %ls -> %ls\n",menu.first.c_str(),menu.second.c_str());
+		CoUninitialize(); return 0;
+	}
 	if (argc>1 && (strcmp(argv[1],"--shell-probe")==0 || strcmp(argv[1],"--shell-show")==0))
 	{
 		const CLSID everything={0x9d39b79c,0xe03c,0x4757,{0xb1,0xb6,0xec,0xce,0x84,0x37,0x48,0xf3}};
@@ -94,57 +105,81 @@ int main( int argc, char **argv )
 	Check((read.fStyle&RBBS_GRIPPERALWAYS) && !(read.fStyle&RBBS_NOGRIPPER),"restores original grip style when disabled");
 	DestroyWindow(parent); accessible.Release();
 
-	// Remote Start menu: folder listing
+	// Remote Start menus: which PCs are connected
+	using namespace RemoteStartLogic;
 	wchar_t temp[MAX_PATH]; GetTempPath(_countof(temp),temp);
 	std::wstring root=std::wstring(temp)+L"RemoteStartTest";
-	CreateDirectory(root.c_str(),NULL); CreateDirectory((root+L"\\PC1").c_str(),NULL); CreateDirectory((root+L"\\PC1\\Start Menu").c_str(),NULL);
-	CreateDirectory((root+L"\\PC1\\Start Menu\\Games").c_str(),NULL); CreateDirectory((root+L"\\NoMenu").c_str(),NULL);
-	for (const wchar_t *name:{L"\\PC1\\Start Menu\\zeta.lnk",L"\\PC1\\Start Menu\\Alpha.lnk",L"\\PC1\\Start Menu\\notes.txt",L"\\PC1\\Start Menu\\Item 10.lnk",L"\\PC1\\Start Menu\\Item 9.lnk"})
-		CloseHandle(CreateFile((root+name).c_str(),GENERIC_WRITE,0,NULL,CREATE_ALWAYS,0,NULL));
-	std::vector<RemoteStartLogic::Entry> entries=RemoteStartLogic::ListFolder(root+L"\\PC1\\Start Menu");
-	Check(entries.size()==5 && entries[0].name==L"Alpha" && entries[1].name==L"Games" && entries[1].folder && entries[2].name==L"Item 9" && entries[3].name==L"Item 10" && entries[4].name==L"zeta",
-		"lists shortcuts and folders together in natural name order, without other files");
-	auto menus=RemoteStartLogic::FindMenus(root);
-	Check(menus.size()==1 && menus[0].first==L"PC1","finds only PCs that have a Start Menu folder");
+	for (const wchar_t *folder:{L"",L"\\PC1",L"\\PC1\\Start Menu",L"\\pc2",L"\\pc2\\Start Menu",L"\\NoMenu"})
+		CreateDirectory((root+folder).c_str(),NULL);
+	RemoteMenuList menus=FindMenus(root);
+	Check(menus.size()==2 && menus[0].first==L"PC1" && menus[1].first==L"pc2" && menus[1].second==root+L"\\pc2\\Start Menu","finds each PC that has a Start Menu folder, in name order");
+	std::wstring wide=L"\xFEFFscreen mode id:i:1\r\nfull address:s:PC1:3390\r\n";
+	Check(HostFromRdp(std::string((const char*)wide.c_str(),wide.size()*sizeof(wchar_t)))==L"PC1","reads the computer from a Unicode connection file, without the port");
+	Check(HostFromRdp("username:s:me\nFull Address:s:pc2.home.lan\n")==L"pc2.home.lan","reads the computer from a plain connection file");
+	{
+		HANDLE file=CreateFile((root+L"\\pc2\\Firefox.rdp").c_str(),GENERIC_WRITE,0,NULL,CREATE_ALWAYS,0,NULL);
+		const char rdp[]="remoteapplicationmode:i:1\r\nfull address:s:192.168.1.20\r\n"; DWORD written;
+		WriteFile(file,rdp,sizeof(rdp)-1,&written,NULL); CloseHandle(file);
+	}
+	std::set<std::wstring> names=HostNames(root+L"\\pc2");
+	Check(names.size()==2 && names.count(L"pc2") && names.count(L"192.168.1.20"),"a PC is known by its folder name and the computers its connection files use");
+	std::map<std::wstring,std::set<std::wstring>> addresses={{L"PC1",{L"192.168.1.10"}},{L"pc2",{L"192.168.1.20",L"fe80::2"}}};
+	RemoteMenuList connected=ConnectedPcs(menus,addresses,{L"192.168.1.20",L"52.1.2.3"});
+	Check(connected.size()==1 && connected[0].first==L"pc2","only PCs with an open connection get a button");
+	connected=ConnectedPcs(menus,addresses,{L"192.168.1.10",L"fe80::2"});
+	Check(connected.size()==2 && connected[0].first==L"PC1" && connected[1].first==L"pc2","several connected PCs each get a button, in name order");
+	Check(ConnectedPcs(menus,{},{L"192.168.1.10"}).empty(),"a PC whose address is still unknown gets no button yet");
 	SHFILEOPSTRUCT remove={NULL,FO_DELETE,NULL,NULL,FOF_NO_UI}; std::wstring from=root+L'\0'; remove.pFrom=from.c_str(); SHFileOperation(&remove);
 
-	// Remote Start button beside Start on the main taskbar
-	if (!HasRemoteStartMenus())
-		printf("SKIP: no remote Start menu set up on this PC\n");
-	else
+	// One red Start button per connected PC, right of Start and before the Recycle Bin
 	{
+		static RemoteMenuList fake;
+		static std::vector<std::wstring> opened;
+		SetRemoteStartHooks([]()->RemoteMenuList { return fake; },[]( HWND, HWND, const wchar_t *folder ) { opened.push_back(folder); });
 		WNDCLASS taskbarClass={0,DefWindowProc,0,0,GetModuleHandle(NULL),NULL,NULL,NULL,NULL,L"Shell_TrayWnd"};
-		WNDCLASS railClass={0,DefWindowProc,0,0,GetModuleHandle(NULL),NULL,NULL,NULL,NULL,L"RAIL_WINDOW"};
-		RegisterClass(&taskbarClass); RegisterClass(&railClass);
-		HWND rail=CreateWindowEx(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,L"RAIL_WINDOW",L"Test (Remote)",WS_POPUP|WS_VISIBLE,-200,-200,10,10,NULL,NULL,GetModuleHandle(NULL),NULL);
+		RegisterClass(&taskbarClass);
 		HWND tray=CreateWindow(L"Shell_TrayWnd",L"",WS_OVERLAPPEDWINDOW,0,0,1000,60,NULL,NULL,GetModuleHandle(NULL),NULL);
 		HWND bar=CreateWindow(REBARCLASSNAME,NULL,WS_CHILD|WS_VISIBLE|CCS_NORESIZE,50,0,900,40,tray,NULL,GetModuleHandle(NULL),NULL);
-		SetWindowSubclass(bar,RebarProc,1,0);
 		SetWindowSubclass(bar,[]( HWND w, UINT m, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR )->LRESULT
 		{
 			if (m==WM_WINDOWPOSCHANGING) { PrepareTaskbarWidgetPosition(GetParent(w),w,(WINDOWPOS*)lp); PositionTaskbarWidget(GetParent(w),w,(WINDOWPOS*)lp); }
 			return DefSubclassProc(w,m,wp,lp);
 		},2,0);
-		Check(IsRemoteAppSessionActive(),"notices an open RemoteApp window");
-		UpdateTaskbarWidgets(tray,bar,true,false,242,false,false,true);
-		HWND remote=(HWND)GetProp(tray,L"OpenShell.RemoteStartButton"), bin=(HWND)GetProp(tray,L"OpenShell.RecycleButton");
-		SetWindowPos(bar,NULL,50,0,900,40,SWP_NOZORDER|SWP_NOACTIVATE);
-		RECT red, recycleRect, barRect; GetWindowRect(remote,&red); GetWindowRect(bin,&recycleRect); GetWindowRect(bar,&barRect);
-		MapWindowPoints(NULL,tray,(POINT*)&red,2); MapWindowPoints(NULL,tray,(POINT*)&recycleRect,2); MapWindowPoints(NULL,tray,(POINT*)&barRect,2);
-		Check(IsWindow(remote) && red.left==50 && recycleRect.left==red.right && barRect.left==recycleRect.right && barRect.right==950,
-			"red Start button sits right of Start, before the Recycle Bin, and the toolbars keep the rest");
-		ShowWindow(rail,SW_HIDE);
-		if (IsRemoteAppSessionActive())
-			printf("SKIP: real RemoteApp windows are open, so the button correctly stays\n");
-		else
+		auto buttons=[tray]()
 		{
-			SendMessage(tray,WM_TIMER,'OSRS',0);
-			GetWindowRect(bin,&recycleRect); GetWindowRect(bar,&barRect);
-			MapWindowPoints(NULL,tray,(POINT*)&recycleRect,2); MapWindowPoints(NULL,tray,(POINT*)&barRect,2);
-			Check(!IsWindow(remote) && recycleRect.left==50 && barRect.left==recycleRect.right && barRect.right==950,"red Start button leaves when the RemoteApp windows close");
-		}
+			std::vector<std::pair<std::wstring,RECT>> found;
+			for (HWND child=GetWindow(tray,GW_CHILD);child;child=GetWindow(child,GW_HWNDNEXT))
+			{
+				wchar_t text[100]; GetWindowText(child,text,_countof(text));
+				RECT rect; GetWindowRect(child,&rect); MapWindowPoints(NULL,tray,(POINT*)&rect,2);
+				if (*text) found.push_back(std::make_pair(std::wstring(text),rect));
+			}
+			std::sort(found.begin(),found.end(),[]( const std::pair<std::wstring,RECT> &a, const std::pair<std::wstring,RECT> &b ) { return a.second.left<b.second.left; });
+			return found;
+		};
+		fake={{L"PC1",L"C:\\Menus\\PC1"},{L"pc2",L"C:\\Menus\\pc2"}};
+		UpdateTaskbarWidgets(tray,bar,true,false,242,false,false,true);
+		SetWindowPos(bar,NULL,50,0,900,40,SWP_NOZORDER|SWP_NOACTIVATE);
+		auto found=buttons();
+		RECT barRect; GetWindowRect(bar,&barRect); MapWindowPoints(NULL,tray,(POINT*)&barRect,2);
+		Check(found.size()==3 && found[0].first==L"Start menu on PC1" && found[1].first==L"Start menu on pc2" && found[2].first==L"Recycle Bin"
+			&& found[0].second.left==50 && found[1].second.left==found[0].second.right && found[2].second.left==found[1].second.right && barRect.left==found[2].second.right && barRect.right==950,
+			"a red Start button for each PC sits right of Start, in order, before the Recycle Bin");
+		HWND second=GetWindow(tray,GW_CHILD);
+		while (second) { wchar_t text[100]; GetWindowText(second,text,_countof(text)); if (wcscmp(text,L"Start menu on pc2")==0) break; second=GetWindow(second,GW_HWNDNEXT); }
+		SendMessage(tray,WM_COMMAND,MAKEWPARAM(0,BN_CLICKED),(LPARAM)second);
+		Check(opened.size()==1 && opened[0]==L"C:\\Menus\\pc2","each button opens its own PC's menu");
+		fake={{L"pc2",L"C:\\Menus\\pc2"}};
+		SendMessage(tray,WM_TIMER,'OSRS',0);
+		found=buttons(); GetWindowRect(bar,&barRect); MapWindowPoints(NULL,tray,(POINT*)&barRect,2);
+		Check(found.size()==2 && found[0].first==L"Start menu on pc2" && found[0].second.left==50 && barRect.left==found[1].second.right && barRect.right==950,"a PC's button leaves when its RemoteApps close");
+		fake.clear();
+		SendMessage(tray,WM_TIMER,'OSRS',0);
+		found=buttons(); GetWindowRect(bar,&barRect); MapWindowPoints(NULL,tray,(POINT*)&barRect,2);
+		Check(found.size()==1 && found[0].second.left==50 && barRect.left==found[0].second.right,"with no remote PCs only the Recycle Bin stays");
 		UpdateTaskbarWidgets(tray,bar,false,false,242,false,true);
-		DestroyWindow(tray); DestroyWindow(rail);
+		DestroyWindow(tray);
+		SetRemoteStartHooks(NULL,NULL);
 	}
 	CoUninitialize();
 	return failures?1:0;

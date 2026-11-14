@@ -319,6 +319,10 @@ bool CMenuContainer::s_bSingleClickFolders=false;
 bool CMenuContainer::s_bLogicalSort=false;
 bool CMenuContainer::s_bExtensionSort=false;
 bool CMenuContainer::s_bAllPrograms=false;
+static CString s_FolderMenuPath; // the folder shown by ToggleFolderMenu while that menu is open
+static HWND s_FolderMenuAnchor; // the button the folder menu opens from
+static HWND s_FolderMenuJustClosed; // a click on this button closed its menu and must not reopen it
+static DWORD s_FolderMenuClosedTime;
 bool CMenuContainer::s_bNoCommonFolders=false;
 bool CMenuContainer::s_bNoRun=false;
 bool CMenuContainer::s_bNoClose=false;
@@ -6266,6 +6270,17 @@ LRESULT CMenuContainer::OnDestroy( UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL
 		if (m_pProgramsTree && m_pProgramsTree->m_hWnd && s_MenuMode==MODE_PROGRAMS)
 			s_ProgramsScrollPos=m_pProgramsTree->GetScrollPos(SB_VERT);
 		s_bAllPrograms=false;
+		if (!s_FolderMenuPath.IsEmpty())
+		{
+			POINT pt;
+			if ((GetAsyncKeyState(VK_LBUTTON)&0x8000) && GetCursorPos(&pt) && WindowFromPoint(pt)==s_FolderMenuAnchor)
+			{
+				s_FolderMenuJustClosed=s_FolderMenuAnchor; // this click is closing the menu; it must not reopen it
+				s_FolderMenuClosedTime=GetTickCount();
+			}
+			s_FolderMenuPath.Empty();
+			s_FolderMenuAnchor=NULL;
+		}
 		if ((m_Options&CONTAINER_ALLPROGRAMS) && g_TopWin7Menu && ::IsWindowVisible(g_TopWin7Menu))
 		{
 			::ShowWindow(g_UserPic,SW_SHOW);
@@ -7551,6 +7566,26 @@ POINT CMenuContainer::CalculateCorner( void )
 }
 
 // Toggles the start menu
+HWND CMenuContainer::ToggleFolderMenu( int taskbarId, HWND anchor, const wchar_t *folder )
+{
+	if (anchor==s_FolderMenuJustClosed && GetTickCount()-s_FolderMenuClosedTime<1500)
+	{
+		s_FolderMenuJustClosed=NULL;
+		return NULL;
+	}
+	s_FolderMenuJustClosed=NULL;
+	if (!GetTaskbarInfo(taskbarId) || !folder || !*folder) return NULL;
+	s_FolderMenuPath=folder;
+	s_FolderMenuAnchor=anchor;
+	HWND menu=ToggleStartMenu(taskbarId,false,true);
+	if (!menu)
+	{
+		s_FolderMenuPath.Empty();
+		s_FolderMenuAnchor=NULL;
+	}
+	return menu;
+}
+
 HWND CMenuContainer::ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPrograms )
 {
 	s_bAllPrograms=false;
@@ -7604,6 +7639,7 @@ HWND CMenuContainer::ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPr
 		*(int*)0=0;
 	g_ItemManager.RefreshInfos();
 	s_bWin7Style=GetSettingInt(L"MenuStyle")==MENU_WIN7;
+	bool bFolderMenu=bAllPrograms && !s_FolderMenuPath.IsEmpty(); // a remote PC's menu (ToggleFolderMenu)
 
 	if (!s_StartMenuMsg)
 		s_StartMenuMsg=RegisterWindowMessage(L"OpenShellMenu.StartMenuMsg");
@@ -7673,7 +7709,7 @@ HWND CMenuContainer::ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPr
 			}
 		}
 	}
-	if (bAllPrograms)
+	if (bAllPrograms && !bFolderMenu)
 	{
 		bErr=!s_Skin.LoadMenuSkin(GetSettingString(L"SkinA"),GetSettingString(L"SkinVariationA"),GetSettingString(L"SkinOptionsA"),MenuSkin::SKIN_TYPE_ALL_PROGRAMS,LOADMENU_RESOURCES,dpi);
 		if (bErr)
@@ -7698,9 +7734,12 @@ HWND CMenuContainer::ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPr
 			s_Skin.LoadDefaultMenuSkin(MenuSkin::SKIN_TYPE_CLASSIC1,LOADMENU_RESOURCES,dpi);
 	}
 
+	if (bFolderMenu)
+		s_bWin7Style=false; // the folder menu uses the Start menu's skin, but only as a cascading menu
 	const MenuSkin &s_Skin=CMenuContainer::s_Skin; // shadow s_Skin with a const reference to catch any modifications to non-mutable members
 	g_CurrentCSMTaskbar=s_TaskBarId;
-	PressStartButton(s_TaskBarId,true);
+	if (!bFolderMenu)
+		PressStartButton(s_TaskBarId,true);
 	g_ItemManager.ResetTempIcons();
 	s_ScrollMenus=GetSettingInt(L"ScrollType");
 	s_bExpandLinks=GetSettingBool(L"ExpandFolderLinks");
@@ -8078,7 +8117,11 @@ HWND CMenuContainer::ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPr
 	CAbsolutePidl path1;
 	CAbsolutePidl path2;
 	s_PinFolder.Empty();
-	if (bAllPrograms || GetSettingInt(L"PinnedPrograms")==PINNED_PROGRAMS_FAST)
+	if (bFolderMenu)
+	{
+		SHParseDisplayName(s_FolderMenuPath,NULL,&path1,0,NULL);
+	}
+	else if (bAllPrograms || GetSettingInt(L"PinnedPrograms")==PINNED_PROGRAMS_FAST)
 	{
 		ShGetKnownFolderIDList(FOLDERID_StartMenu,&path1);
 		CComString pPath;
@@ -8131,7 +8174,11 @@ HWND CMenuContainer::ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPr
 	int options=CONTAINER_PROGRAMS|CONTAINER_DRAG|CONTAINER_DROP;
 	unsigned int rootSettings=0;
 	const StdMenuItem *pRoot=NULL;
-	if (bAllPrograms)
+	if (bFolderMenu)
+	{
+		options=CONTAINER_PROGRAMS|CONTAINER_DRAG|CONTAINER_NONEWFOLDER;
+	}
+	else if (bAllPrograms)
 	{
 		options|=CONTAINER_ALLPROGRAMS;
 	}
@@ -8239,7 +8286,7 @@ HWND CMenuContainer::ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPr
 
 	memset(&s_StartRect,0,sizeof(s_StartRect));
 
-	HMONITOR s_MenuMonitor=MonitorFromWindow(bAllPrograms?g_ProgramsButton:pStartMenu->m_hWnd,MONITOR_DEFAULTTONEAREST);
+	HMONITOR s_MenuMonitor=MonitorFromWindow(bAllPrograms?(bFolderMenu?s_FolderMenuAnchor:g_ProgramsButton):pStartMenu->m_hWnd,MONITOR_DEFAULTTONEAREST);
 	s_bLockWorkArea=true;
 	RECT taskbarRect;
 	if (initialMonitor!=s_MenuMonitor && s_StartMenuParams.uEdge==0xFFFFFFFF)
@@ -8462,9 +8509,20 @@ HWND CMenuContainer::ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPr
 	if (bAllPrograms)
 	{
 		RECT rc;
-		if (!::GetWindowRect(g_ProgramsButton,&rc))
+		if (!::GetWindowRect(bFolderMenu?s_FolderMenuAnchor:g_ProgramsButton,&rc))
 			memset(&rc,0,sizeof(rc));
-		if (s_StartRect.right+s_StartRect.left<s_MenuLimits.left+s_MenuLimits.right)
+		if (bFolderMenu)
+		{
+			// open upwards from the top of the button, like the Start menu, without covering the taskbar
+			options|=CONTAINER_LEFT;
+			corner.x=rc.left;
+			corner.y=rc.top;
+			s_bExpandRight=true;
+			MONITORINFO info={sizeof(info)};
+			if (GetMonitorInfo(MonitorFromWindow(s_FolderMenuAnchor,MONITOR_DEFAULTTONEAREST),&info))
+				s_MenuLimits=info.rcWork;
+		}
+		else if (s_StartRect.right+s_StartRect.left<s_MenuLimits.left+s_MenuLimits.right)
 		{
 			// start button on the left
 			options|=CONTAINER_LEFT;
@@ -8477,7 +8535,8 @@ HWND CMenuContainer::ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPr
 			s_bExpandRight=false;
 			corner.x=rc.left+s_Skin.Submenu_padding.right-s_Skin.AllPrograms_offset;
 		}
-		corner.y=rc.bottom;
+		if (!bFolderMenu)
+			corner.y=rc.bottom;
 		options|=CONTAINER_MULTICOLUMN|CONTAINER_MULTICOL_REC;
 		pStartMenu->m_Options=options;
 		s_MainMenuLimits=s_MenuLimits;
@@ -8668,6 +8727,8 @@ HWND CMenuContainer::ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPr
 
 bool CMenuContainer::ProcessMouseMessage( HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam )
 {
+	if (!s_FolderMenuPath.IsEmpty())
+		return false; // the hover handling below is for the Windows 7 menu's All Programs list
 	if (uMsg==WM_MOUSEMOVE)
 	{
 		if (!s_bAllPrograms)

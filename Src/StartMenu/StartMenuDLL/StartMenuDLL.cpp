@@ -404,6 +404,14 @@ static TaskbarInfo *FindTaskBarInfoBar( HWND bar )
 	return NULL;
 }
 
+// A red Start button opens its remote PC's Start menu as an Open-Shell menu
+static void OpenRemoteStartMenu( HWND taskbar, HWND button, const wchar_t *folder )
+{
+	TaskbarInfo *taskBar=FindTaskBarInfoBar(taskbar);
+	if (taskBar)
+		CMenuContainer::ToggleFolderMenu(taskBar->taskbarId,button,folder);
+}
+
 static LRESULT CALLBACK HookProgManThread( int code, WPARAM wParam, LPARAM lParam );
 static LRESULT CALLBACK HookDesktopThread( int code, WPARAM wParam, LPARAM lParam );
 static LRESULT CALLBACK HookDesktopThreadMouse(int code, WPARAM wParam, LPARAM lParam);
@@ -2496,6 +2504,7 @@ void UpdateTaskBars( TUpdateTaskbar update )
 	}
 	if (g_bTrimHooks)
 		bButton=false;
+	SetRemoteStartHooks(NULL,OpenRemoteStartMenu);
 	for (id_taskbar_map::iterator it=g_TaskbarInfos.begin();it!=g_TaskbarInfos.end();++it)
 	{
 		TaskbarInfo &taskBar=it->second;

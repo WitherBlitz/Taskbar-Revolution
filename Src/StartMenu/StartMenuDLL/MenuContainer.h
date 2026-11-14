@@ -332,6 +332,7 @@ public:
 	static bool IsMenuWindow( HWND hWnd );
 	static bool IgnoreTaskbarTimers( void ) { return !s_Menus.empty() && (s_TaskbarState&ABS_AUTOHIDE); }
 	static HWND ToggleStartMenu( int taskbarId, bool bKeyboard, bool bAllPrograms );
+	static HWND ToggleFolderMenu( int taskbarId, HWND anchor, const wchar_t *folder ); // a menu of one folder, opened above a taskbar button, drawn with the Start menu's skin
 	static bool ProcessMouseMessage( HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam );
 	static void RefreshIcons( void );
 	static void RefreshSearch( void );
