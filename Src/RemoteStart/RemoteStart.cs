@@ -4,6 +4,7 @@
 //   RemoteStart.exe "common:<path under All Users Start Menu\Programs>"
 //   RemoteStart.exe "user:<path under the user's Start Menu\Programs>"
 //   RemoteStart.exe "app:<AppUserModelID of an installed app>"
+//   RemoteStart.exe "disconnect:"  disconnects the RemoteApp session it runs in
 // Build: %WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:winexe /out:RemoteStart.exe RemoteStart.cs
 
 using System;
@@ -22,6 +23,9 @@ class ApplicationActivationManager {}
 
 static class RemoteStart
 {
+	[DllImport("wtsapi32.dll",SetLastError=true)]
+	static extern bool WTSDisconnectSession( IntPtr server, int sessionId, bool wait );
+
 	[STAThread]
 	static int Main( string[] args )
 	{
@@ -29,6 +33,11 @@ static class RemoteStart
 		string item=args[0];
 		try
 		{
+			if (item=="disconnect:")
+			{
+				// ends this RemoteApp connection; the session and its apps keep running on this PC
+				return WTSDisconnectSession(IntPtr.Zero,-1,false)?0:8;
+			}
 			if (item.StartsWith("app:",StringComparison.Ordinal))
 			{
 				string id=item.Substring(4);

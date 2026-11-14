@@ -82,6 +82,35 @@ static LRESULT CALLBACK RemoteButtonProc( HWND window, UINT message, WPARAM wPar
 	}
 	if (message==WM_MOUSELEAVE) { RemoveProp(window,L"OpenShell.Hot"); InvalidateRect(window,NULL,FALSE); }
 	if (message==WM_SETFOCUS || message==WM_KILLFOCUS) InvalidateRect(window,NULL,FALSE);
+	if (message==WM_CONTEXTMENU && data)
+	{
+		const RemoteButtonData *remote=(const RemoteButtonData*)data;
+		POINT point={(short)LOWORD(lParam),(short)HIWORD(lParam)};
+		if (point.x==-1 && point.y==-1) { RECT rc; GetWindowRect(window,&rc); point={rc.left,rc.top}; }
+		HMENU menu=CreatePopupMenu();
+		AppendMenu(menu,MF_STRING,1,(L"Disconnect from "+remote->pc).c_str());
+		SetForegroundWindow(GetAncestor(window,GA_ROOT));
+		int command=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_RIGHTBUTTON|TPM_BOTTOMALIGN,point.x,point.y,0,window,NULL);
+		DestroyMenu(menu);
+		PostMessage(window,WM_NULL,0,0);
+		if (command==1)
+		{
+			// The PC disconnects its own RemoteApp session (Windows App serves every PC from one process).
+			// Its apps keep running there; its windows here close and its button goes away.
+			std::wstring launcher=remote->folder.substr(0,remote->folder.find_last_of(L'\\'))+L"\\Launch-RemoteStart.ps1";
+			wchar_t system[_MAX_PATH];
+			GetSystemDirectory(system,_countof(system));
+			std::wstring commandLine=L"\""+std::wstring(system)+L"\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \""+launcher+L"\" -Item \"disconnect:\"";
+			STARTUPINFO startup={sizeof(startup)};
+			PROCESS_INFORMATION process;
+			if (CreateProcess(NULL,&commandLine[0],NULL,NULL,FALSE,CREATE_NO_WINDOW,NULL,NULL,&startup,&process))
+			{
+				CloseHandle(process.hThread);
+				CloseHandle(process.hProcess);
+			}
+		}
+		return 0;
+	}
 	if (message==WM_NCDESTROY)
 	{
 		RemoveProp(window,L"OpenShell.Hot"); RemoveProp(window,PLACED_PROPERTY);

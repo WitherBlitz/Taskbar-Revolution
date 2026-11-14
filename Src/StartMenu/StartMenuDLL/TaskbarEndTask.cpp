@@ -12,6 +12,7 @@
 #include <propsys.h>
 #include <shlwapi.h>
 #include <windowsx.h>
+#include <UIAutomationClient.h>
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -557,6 +558,50 @@ static bool StartWorker( WorkerProc proc, void *param )
 }
 
 static const UINT WM_ENDTASK_RESOLVED=WM_APP+0x1E7;
+static const UINT WM_ENDTASK_CLOSEROW=WM_APP+0x1E8; // lParam: RECT* of the menu's "Close window" row
+
+struct CloseRowRequest
+{
+	HWND overlay, menu;
+	LONG request;
+};
+
+// The jump list's own "Close window" / "Close all windows" row, found through UI Automation
+static void CloseRowWorker( void *param )
+{
+	CloseRowRequest *request=(CloseRowRequest*)param;
+	RECT *found=NULL;
+	CComPtr<IUIAutomation> automation;
+	CComPtr<IUIAutomationElement> root;
+	CComPtr<IUIAutomationElementArray> elements;
+	if (SUCCEEDED(automation.CoCreateInstance(__uuidof(CUIAutomation))) && SUCCEEDED(automation->ElementFromHandle(request->menu,&root)) && root)
+	{
+		CComPtr<IUIAutomationCondition> all;
+		automation->CreateTrueCondition(&all);
+		if (all && SUCCEEDED(root->FindAll(TreeScope_Descendants,all,&elements)) && elements)
+		{
+			int count=0;
+			elements->get_Length(&count);
+			for (int i=0;i<count;i++)
+			{
+				CComPtr<IUIAutomationElement> element;
+				CComBSTR name;
+				RECT bounds;
+				if (FAILED(elements->GetElement(i,&element)) || !element || FAILED(element->get_CurrentName(&name)) || !name) continue;
+				if (_wcsicmp(name,L"Close window")!=0 && _wcsicmp(name,L"Close all windows")!=0) continue;
+				if (FAILED(element->get_CurrentBoundingRectangle(&bounds)) || bounds.right<=bounds.left || bounds.bottom<=bounds.top) continue;
+				if (!found || bounds.top>found->top)
+				{
+					if (!found) found=new RECT;
+					*found=bounds;
+				}
+			}
+		}
+	}
+	if (found && !PostMessage(request->overlay,WM_ENDTASK_CLOSEROW,request->request,(LPARAM)found))
+		delete found;
+	delete request;
+}
 
 struct ResolveRequest
 {
@@ -612,6 +657,10 @@ static HWND g_SourceList, g_NativeMenu;
 static RECT g_SourceButton;
 static POINT g_ClickPoint;
 static DWORD g_ClickTime;
+static DWORD g_ShowTime; // the taskbar menu may still be animating in when the row first shows
+static bool g_InMenu; // the row sits inside the jump list, just above its "Close window" row
+static RECT g_MenuRect;
+static bool g_LookedForCloseRow;
 static LONG g_Request;
 
 static void HideOverlay( void )
@@ -629,7 +678,7 @@ static void HideOverlay( void )
 
 static bool IsKnownMenuClass( const wchar_t *name )
 {
-	static const wchar_t *classes[]={L"TaskListOverlayWnd",L"#32768",L"Windows.UI.Core.CoreWindow",L"XamlExplorerHostIslandWindow",L"LauncherTipWnd"};
+	static const wchar_t *classes[]={L"TaskListOverlayWnd",L"#32768",L"Windows.UI.Core.CoreWindow",L"XamlExplorerHostIslandWindow",L"LauncherTipWnd",L"DV2ControlHost"};
 	for (const wchar_t *known:classes)
 		if (wcscmp(name,known)==0)
 			return true;
@@ -664,17 +713,19 @@ static BOOL CALLBACK CollectMenuWindow( HWND window, LPARAM param )
 	return TRUE;
 }
 
-static void ShowOverlay( void )
+// Finds the taskbar menu and puts the row just above it, on top of it in z-order.
+// Returns false while the menu can't be found yet.
+static bool PlaceOverlay( void )
 {
-	if (!g_HasTarget || !IsAllowedTarget(g_Target)) { HideOverlay(); return; }
 	MONITORINFO info={sizeof(info)};
-	if (!GetMonitorInfo(MonitorFromPoint(g_ClickPoint,MONITOR_DEFAULTTONEAREST),&info)) { HideOverlay(); return; }
+	if (!GetMonitorInfo(MonitorFromPoint(g_ClickPoint,MONITOR_DEFAULTTONEAREST),&info)) return false;
 	UINT dpi=g_SourceList?GetDpi(g_SourceList):GetDpi();
 	MenuSearch search;
 	EnumWindows(CollectMenuWindow,(LPARAM)&search);
 	RECT menu;
 	int index=-1;
-	if (SelectMenuRect(search.candidates,info.rcWork,g_ClickPoint.x,dpi,menu,&index))
+	bool found=SelectMenuRect(search.candidates,info.rcWork,g_ClickPoint.x,dpi,menu,&index);
+	if (found)
 		g_NativeMenu=search.windows[index];
 	else
 	{
@@ -689,17 +740,39 @@ static void ShowOverlay( void )
 	}
 	RECT row=PlaceRow(menu,info.rcWork,ScaleForDpi(dpi,40));
 	SetWindowPos(g_Overlay,HWND_TOPMOST,row.left,row.top,row.right-row.left,row.bottom-row.top,SWP_NOACTIVATE|SWP_SHOWWINDOW);
+	g_MenuRect=menu;
+	if (found && !g_LookedForCloseRow)
+	{
+		g_LookedForCloseRow=true;
+		CloseRowRequest *request=new CloseRowRequest{g_Overlay,g_NativeMenu,g_Request};
+		if (!StartWorker(CloseRowWorker,request))
+			delete request;
+	}
+	return found;
+}
+
+static void ShowOverlay( void )
+{
+	if (!g_HasTarget || !IsAllowedTarget(g_Target)) { HideOverlay(); return; }
+	g_ShowTime=GetTickCount();
+	g_InMenu=false;
+	g_LookedForCloseRow=false;
+	PlaceOverlay();
 	InvalidateRect(g_Overlay,NULL,TRUE);
 	SetTimer(g_Overlay,TIMER_HIDE,8000,NULL);
 	SetTimer(g_Overlay,TIMER_HOVER,100,NULL);
 }
 
-// Hides the row when the menu closes or the pointer moves to another taskbar button
+// Keeps the row above the taskbar menu, and hides it when the menu closes or the pointer moves to another taskbar button
 static void CheckOverlay( void )
 {
 	POINT point;
 	RECT rect;
 	if (!IsWindowVisible(g_Overlay) || !GetCursorPos(&point)) return;
+	if (!g_NativeMenu && !g_InMenu && GetTickCount()-g_ShowTime<2000)
+		PlaceOverlay(); // the menu may have finished opening by now
+	else
+		SetWindowPos(g_Overlay,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE); // stay above the menu
 	if (GetWindowRect(g_Overlay,&rect) && PtInRect(&rect,point)) return;
 	if (g_SourceList && GetWindowRect(g_SourceList,&rect) && PtInRect(&rect,point) && !PtInRect(&g_SourceButton,point))
 		HideOverlay();
@@ -743,17 +816,33 @@ static LRESULT CALLBACK OverlayProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM
 				HDC dc=BeginPaint(hWnd,&paint);
 				RECT client;
 				GetClientRect(hWnd,&client);
-				HBRUSH brush=CreateSolidBrush(g_Hovered?RGB(0x27,0x27,0x27):RGB(0x10,0x10,0x10));
+				HBRUSH brush=CreateSolidBrush(g_InMenu?(g_Hovered?RGB(0x41,0x41,0x41):RGB(0x2B,0x2B,0x2B)):(g_Hovered?RGB(0x27,0x27,0x27):RGB(0x10,0x10,0x10)));
 				FillRect(dc,&client,brush);
 				DeleteObject(brush);
-				RECT line={0,0,client.right,1};
-				brush=CreateSolidBrush(RGB(0x39,0x39,0x39));
-				FillRect(dc,&line,brush);
-				DeleteObject(brush);
+				if (!g_InMenu)
+				{
+					RECT line={0,0,client.right,1};
+					brush=CreateSolidBrush(RGB(0x39,0x39,0x39));
+					FillRect(dc,&line,brush);
+					DeleteObject(brush);
+				}
 				SetBkMode(dc,TRANSPARENT);
 				SetTextColor(dc,RGB(245,245,245));
 				HGDIOBJ font=SelectObject(dc,g_OverlayFont);
-				client.left+=ScaleForDpi(g_OverlayDpi,16);
+				if (g_InMenu)
+				{
+					// an icon column like the menu's own rows: a "stop" glyph, then the text
+					HFONT glyphs=CreateFont(-ScaleForDpi(g_OverlayDpi,16),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe MDL2 Assets");
+					RECT icon=client;
+					icon.left+=ScaleForDpi(g_OverlayDpi,12); icon.right=icon.left+ScaleForDpi(g_OverlayDpi,16);
+					SelectObject(dc,glyphs);
+					DrawText(dc,L"\xE71A",1,&icon,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
+					SelectObject(dc,g_OverlayFont);
+					DeleteObject(glyphs);
+					client.left+=ScaleForDpi(g_OverlayDpi,44);
+				}
+				else
+					client.left+=ScaleForDpi(g_OverlayDpi,16);
 				DrawText(dc,L"End task",-1,&client,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX);
 				SelectObject(dc,font);
 				EndPaint(hWnd,&paint);
@@ -764,6 +853,20 @@ static LRESULT CALLBACK OverlayProc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM
 			else if (wParam==TIMER_HIDE) HideOverlay();
 			else if (wParam==TIMER_HOVER) CheckOverlay();
 			return 0;
+	}
+	if (uMsg==WM_ENDTASK_CLOSEROW)
+	{
+		RECT *close=(RECT*)lParam;
+		if ((LONG)wParam==g_Request && g_HasTarget && IsWindowVisible(hWnd))
+		{
+			// same width as the menu, the same height as its Close row, directly above it
+			int height=close->bottom-close->top;
+			SetWindowPos(hWnd,HWND_TOPMOST,g_MenuRect.left,close->top-height,g_MenuRect.right-g_MenuRect.left,height,SWP_NOACTIVATE|SWP_SHOWWINDOW);
+			g_InMenu=true;
+			InvalidateRect(hWnd,NULL,TRUE);
+		}
+		delete close;
+		return 0;
 	}
 	if (uMsg==WM_ENDTASK_RESOLVED)
 	{

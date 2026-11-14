@@ -3,7 +3,7 @@
 # RemoteStart RemoteApp published on that PC.
 param(
     [Parameter(Mandatory = $true)]
-    [ValidatePattern('^(common|user|app):')]
+    [ValidatePattern('^(common|user|app|disconnect):')]
     [string]$Item
 )
 
