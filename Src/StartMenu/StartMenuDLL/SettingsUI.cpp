@@ -4468,6 +4468,7 @@ CSetting g_Settings[]={
 	{L"TaskbarSearchWidth",CSetting::TYPE_INT,IDS_TASK_SEARCHWIDTH,IDS_TASK_SEARCHWIDTH_TIP,242,CSetting::FLAG_CALLBACK,L"TaskbarEverything"},
 	{L"TaskbarHideGrips",CSetting::TYPE_BOOL,IDS_TASK_HIDEGRIPS,IDS_TASK_HIDEGRIPS_TIP,1,CSetting::FLAG_CALLBACK},
 	{L"TaskbarEndTask",CSetting::TYPE_BOOL,IDS_TASK_ENDTASK,IDS_TASK_ENDTASK_TIP,1,CSetting::FLAG_CALLBACK},
+	{L"TaskbarRemoteStart",CSetting::TYPE_BOOL,IDS_TASK_REMOTESTART,IDS_TASK_REMOTESTART_TIP,1,CSetting::FLAG_CALLBACK},
 	{L"CustomTaskbar",CSetting::TYPE_BOOL,IDS_TASK_CUSTOM,IDS_TASK_CUSTOM_TIP,0,CSetting::FLAG_CALLBACK},
 	{L"TaskbarLook",CSetting::TYPE_INT,IDS_TASK_LOOK,IDS_TASK_LOOK_TIP,1,CSetting::FLAG_CALLBACK,L"CustomTaskbar",L"CustomTaskbar"},
 		{L"Opaque",CSetting::TYPE_RADIO,IDS_TASK_OPAQUE,IDS_TASK_OPAQUE_TIP},
@@ -5234,7 +5235,7 @@ void ClosingSettings( HWND hWnd, int flags, int command )
 
 void SettingChangedCallback( const CSetting *pSetting )
 {
-	if (wcscmp(pSetting->name,L"TaskbarRecycleBin")==0 || wcscmp(pSetting->name,L"TaskbarEverything")==0 || wcscmp(pSetting->name,L"TaskbarSearchWidth")==0 || wcscmp(pSetting->name,L"TaskbarHideGrips")==0 || wcscmp(pSetting->name,L"TaskbarEndTask")==0)
+	if (wcscmp(pSetting->name,L"TaskbarRecycleBin")==0 || wcscmp(pSetting->name,L"TaskbarEverything")==0 || wcscmp(pSetting->name,L"TaskbarSearchWidth")==0 || wcscmp(pSetting->name,L"TaskbarHideGrips")==0 || wcscmp(pSetting->name,L"TaskbarEndTask")==0 || wcscmp(pSetting->name,L"TaskbarRemoteStart")==0)
 	{
 		UpdateTaskBars(TASKBAR_UPDATE);
 		g_bTaskbarsChanged=true;

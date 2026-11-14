@@ -10,6 +10,7 @@ This fork adds a redesigned settings interface and compact taskbar controls to [
 - Controls for the existing [EverythingToolbar](https://github.com/srwi/EverythingToolbar) deskband's visibility and width. EverythingToolbar must already be installed and registered.
 - Optional removal of the classic taskbar's resize grips, including after Explorer refreshes its toolbar styles.
 - **End task** on taskbar buttons: right-click a running app and an End task row appears next to its menu. It force-ends the app and its child processes; apps running as administrator ask for approval first. Ending File Explorer restarts the shell.
+- **Red Start button for remote PCs**: while RemoteApp windows from another PC are open, a red Start button appears right of Start and opens that PC's Start menu; picking an item opens it on that PC as a RemoteApp. Setup per PC is in [Src/RemoteStart](Src/RemoteStart): `RemoteStart.exe` is published as a RemoteApp on the remote PC, and `Build-RemoteStartMenu.ps1` builds the local copy of its menu in `%LOCALAPPDATA%\RemoteAppLaunchers\<PC>\Start Menu`.
 - Typing while the Start menu is open always goes to the search box, so letters no longer trigger items such as Sleep or Restart. Alt+letter still uses the item shortcuts.
 - Window-based DPI sizing so Explorer-hosted settings use the same scale as their native controls and preview images.
 

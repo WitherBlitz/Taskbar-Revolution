@@ -13,6 +13,8 @@
 #define IDS_TASK_HIDEGRIPS_TIP          7119
 #define IDS_TASK_ENDTASK                7120
 #define IDS_TASK_ENDTASK_TIP            7121
+#define IDS_TASK_REMOTESTART            7122
+#define IDS_TASK_REMOTESTART_TIP        7123
 #define IDI_APPSICON                    2
 #define IDI_APPSICON10                  3
 #define IDI_APPSICON11                  4

@@ -1,17 +1,103 @@
 #include "stdafx.h"
 #include "TaskbarWidgets.h"
 #include "ResourceHelper.h"
+#include "RemoteStartMenu.h"
 #include <uxtheme.h>
 
 static const wchar_t *RECYCLE_PROPERTY=L"OpenShell.RecycleButton";
+static const wchar_t *REMOTE_PROPERTY=L"OpenShell.RemoteStartButton";
+static const wchar_t *PLACED_PROPERTY=L"OpenShell.WidgetPlaced";
 static const CLSID EVERYTHING_TOOLBAR={0x9d39b79c,0xe03c,0x4757,{0xb1,0xb6,0xec,0xce,0x84,0x37,0x48,0xf3}};
 struct WidgetState
 {
 	HWND rebar;
-	bool recycle, everything, hideGrips, retrying;
+	bool recycle, everything, hideGrips, retrying, remoteStart;
 	int searchWidth, attempts;
 	DWORD searchBandId;
 };
+static bool s_RemoteMenuOpen;
+
+// Buttons beside Start, left to right: the red remote Start button, then the Recycle Bin
+static int SlotButtons( HWND taskbar, HWND buttons[2] )
+{
+	int count=0;
+	HWND remote=(HWND)GetProp(taskbar,REMOTE_PROPERTY), recycle=(HWND)GetProp(taskbar,RECYCLE_PROPERTY);
+	if (IsWindow(remote)) buttons[count++]=remote;
+	if (IsWindow(recycle)) buttons[count++]=recycle;
+	return count;
+}
+
+static int SlotSize( HWND taskbar, HWND button )
+{
+	return ScaleForDpi(taskbar,button==(HWND)GetProp(taskbar,REMOTE_PROPERTY)?40:32);
+}
+
+static LRESULT CALLBACK RemoteButtonProc( HWND window, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR )
+{
+	if (message==WM_PAINT)
+	{
+		PAINTSTRUCT paint; HDC dc=BeginPaint(window,&paint);
+		RECT rect; GetClientRect(window,&rect);
+		DrawThemeParentBackground(window,dc,&rect);
+		COLORREF color=GetProp(window,L"OpenShell.Open")?RGB(0xB0,0x0E,0x1A):GetProp(window,L"OpenShell.Hot")?RGB(0xFF,0x4D,0x5E):RGB(0xE8,0x11,0x23);
+		// A red Windows logo: four panes
+		int size=max(4,min(ScaleForDpi(window,16),(int)min(rect.right,rect.bottom)-ScaleForDpi(window,8)));
+		int gap=max(1,size/8), pane=(size-gap)/2;
+		int x=(rect.right-(pane*2+gap))/2, y=(rect.bottom-(pane*2+gap))/2;
+		HBRUSH brush=CreateSolidBrush(color);
+		for (int i=0;i<4;i++)
+		{
+			RECT square={x+(i%2)*(pane+gap),y+(i/2)*(pane+gap),0,0};
+			square.right=square.left+pane; square.bottom=square.top+pane;
+			FillRect(dc,&square,brush);
+		}
+		DeleteObject(brush);
+		if (GetFocus()==window) { InflateRect(&rect,-3,-3); DrawFocusRect(dc,&rect); }
+		EndPaint(window,&paint); return 0;
+	}
+	if (message==WM_ERASEBKGND) return 1;
+	if (message==WM_MOUSEMOVE && !GetProp(window,L"OpenShell.Hot"))
+	{
+		SetProp(window,L"OpenShell.Hot",(HANDLE)1);
+		TRACKMOUSEEVENT track={sizeof(track),TME_LEAVE,window}; TrackMouseEvent(&track);
+		InvalidateRect(window,NULL,FALSE);
+	}
+	if (message==WM_MOUSELEAVE) { RemoveProp(window,L"OpenShell.Hot"); InvalidateRect(window,NULL,FALSE); }
+	if (HandleRemoteStartMenuMessage(window,message,wParam,lParam)) return 0;
+	if (message==WM_SETFOCUS || message==WM_KILLFOCUS) InvalidateRect(window,NULL,FALSE);
+	if (message==WM_NCDESTROY)
+	{
+		RemoveProp(window,L"OpenShell.Hot"); RemoveProp(window,L"OpenShell.Open"); RemoveProp(window,PLACED_PROPERTY);
+		RemoveWindowSubclass(window,RemoteButtonProc,'OSRS');
+	}
+	return DefSubclassProc(window,message,wParam,lParam);
+}
+
+static RECT UnreservedRect( HWND taskbar, HWND rebar );
+
+// Shows the red Start button while a RemoteApp window from another PC is open
+static void UpdateRemoteButton( HWND taskbar, HWND rebar, bool show )
+{
+	HWND button=(HWND)GetProp(taskbar,REMOTE_PROPERTY);
+	if (show==(IsWindow(button)!=FALSE) || !IsWindow(rebar)) return;
+	RECT rect=UnreservedRect(taskbar,rebar);
+	if (show)
+	{
+		button=CreateWindowEx(0,L"BUTTON",L"Remote Start",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,40,40,taskbar,NULL,_AtlBaseModule.GetModuleInstance(),NULL);
+		if (!button) return;
+		SetProp(taskbar,REMOTE_PROPERTY,button);
+		SetWindowSubclass(button,RemoteButtonProc,'OSRS',0);
+		HWND tooltip=CreateWindowEx(WS_EX_TOPMOST,TOOLTIPS_CLASS,NULL,WS_POPUP|TTS_ALWAYSTIP,0,0,0,0,button,NULL,_AtlBaseModule.GetModuleInstance(),NULL);
+		TOOLINFO tool={sizeof(tool),TTF_IDISHWND|TTF_SUBCLASS,taskbar,(UINT_PTR)button};
+		tool.lpszText=const_cast<wchar_t*>(L"Start menu of your remote PC"); SendMessage(tooltip,TTM_ADDTOOL,0,(LPARAM)&tool);
+	}
+	else
+	{
+		RemoveProp(taskbar,REMOTE_PROPERTY); DestroyWindow(button);
+	}
+	// Re-lays out the buttons beside Start
+	SetWindowPos(rebar,NULL,rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top,SWP_NOZORDER|SWP_NOACTIVATE);
+}
 
 HMENU CreateRecycleBinMenu( void )
 {
@@ -77,16 +163,36 @@ static LRESULT CALLBACK WidgetParentProc( HWND window, UINT message, WPARAM wPar
 		ShellExecute(window,L"open",L"shell:RecycleBinFolder",NULL,NULL,SW_SHOWNORMAL);
 		return 0;
 	}
-	if (message==WM_NCDESTROY) { KillTimer(window,'OSWE'); RemoveWindowSubclass(window,WidgetParentProc,'OSRW'); delete state; }
+	if (message==WM_TIMER && wParam=='OSRS')
+	{
+		if (!s_RemoteMenuOpen) UpdateRemoteButton(window,state->rebar,state->remoteStart && IsRemoteAppSessionActive() && HasRemoteStartMenus());
+		return 0;
+	}
+	if (message==WM_COMMAND && HIWORD(wParam)==BN_CLICKED && (HWND)lParam==(HWND)GetProp(window,REMOTE_PROPERTY))
+	{
+		HWND button=(HWND)lParam;
+		RECT rect; GetWindowRect(button,&rect);
+		SetProp(button,L"OpenShell.Open",(HANDLE)1); InvalidateRect(button,NULL,FALSE); UpdateWindow(button);
+		s_RemoteMenuOpen=true;
+		ShowRemoteStartMenu(button,rect);
+		s_RemoteMenuOpen=false;
+		if (IsWindow(button)) { RemoveProp(button,L"OpenShell.Open"); InvalidateRect(button,NULL,FALSE); }
+		return 0;
+	}
+	if (message==WM_NCDESTROY) { KillTimer(window,'OSWE'); KillTimer(window,'OSRS'); RemoveWindowSubclass(window,WidgetParentProc,'OSRW'); delete state; }
 	return DefSubclassProc(window,message,wParam,lParam);
 }
 
-static RECT UnreservedRect( HWND taskbar, HWND rebar, HWND button )
+// The toolbar area as it would be without the buttons beside Start
+static RECT UnreservedRect( HWND taskbar, HWND rebar )
 {
 	RECT rect; GetWindowRect(rebar,&rect); MapWindowPoints(NULL,taskbar,(POINT*)&rect,2);
-	if (GetProp(button,L"OpenShell.RecyclePlaced"))
+	HWND buttons[2];
+	int count=SlotButtons(taskbar,buttons);
+	for (int i=0;i<count;i++)
 	{
-		RECT slot; GetWindowRect(button,&slot);
+		if (!GetProp(buttons[i],PLACED_PROPERTY)) continue;
+		RECT slot; GetWindowRect(buttons[i],&slot);
 		if (rect.right-rect.left>=rect.bottom-rect.top)
 		{
 			if (GetWindowLong(taskbar,GWL_EXSTYLE)&WS_EX_LAYOUTRTL) rect.right+=slot.right-slot.left;
@@ -124,9 +230,9 @@ void FilterTaskbarBandInfo( HWND taskbar, HWND rebar, UINT index, REBARBANDINFO 
 
 void PrepareTaskbarWidgetPosition( HWND taskbar, HWND rebar, WINDOWPOS *position )
 {
-	HWND button=(HWND)GetProp(taskbar,RECYCLE_PROPERTY);
-	if (!IsWindow(button) || (position->flags&(SWP_NOMOVE|SWP_NOSIZE))==(SWP_NOMOVE|SWP_NOSIZE)) return;
-	RECT rect=UnreservedRect(taskbar,rebar,button);
+	HWND buttons[2];
+	if (!SlotButtons(taskbar,buttons) || (position->flags&(SWP_NOMOVE|SWP_NOSIZE))==(SWP_NOMOVE|SWP_NOSIZE)) return;
+	RECT rect=UnreservedRect(taskbar,rebar);
 	if (position->flags&SWP_NOMOVE) { position->x=rect.left; position->y=rect.top; }
 	if (position->flags&SWP_NOSIZE) { position->cx=rect.right-rect.left; position->cy=rect.bottom-rect.top; }
 	position->flags&=~(SWP_NOMOVE|SWP_NOSIZE);
@@ -134,26 +240,31 @@ void PrepareTaskbarWidgetPosition( HWND taskbar, HWND rebar, WINDOWPOS *position
 
 void PositionTaskbarWidget( HWND taskbar, HWND rebar, WINDOWPOS *position )
 {
-	HWND button=(HWND)GetProp(taskbar,RECYCLE_PROPERTY);
-	if (!IsWindow(button) || (position->flags&(SWP_NOMOVE|SWP_NOSIZE))==(SWP_NOMOVE|SWP_NOSIZE)) return;
+	HWND buttons[2];
+	int count=SlotButtons(taskbar,buttons);
+	if (!count || (position->flags&(SWP_NOMOVE|SWP_NOSIZE))==(SWP_NOMOVE|SWP_NOSIZE)) return;
 	PrepareTaskbarWidgetPosition(taskbar,rebar,position);
-	int size=ScaleForDpi(taskbar,32);
-	if (position->cx>=position->cy)
+	for (int i=0;i<count;i++)
 	{
-		bool rtl=(GetWindowLong(taskbar,GWL_EXSTYLE)&WS_EX_LAYOUTRTL)!=0;
-		SetWindowPos(button,NULL,rtl?position->x+position->cx-size:position->x,position->y,size,position->cy,SWP_NOACTIVATE|SWP_NOZORDER);
-		if (!rtl) position->x+=size;
-		position->cx=max(0,position->cx-size);
+		HWND button=buttons[i];
+		int size=SlotSize(taskbar,button);
+		if (position->cx>=position->cy)
+		{
+			bool rtl=(GetWindowLong(taskbar,GWL_EXSTYLE)&WS_EX_LAYOUTRTL)!=0;
+			SetWindowPos(button,NULL,rtl?position->x+position->cx-size:position->x,position->y,size,position->cy,SWP_NOACTIVATE|SWP_NOZORDER);
+			if (!rtl) position->x+=size;
+			position->cx=max(0,position->cx-size);
+		}
+		else
+		{
+			SetWindowPos(button,NULL,position->x,position->y,position->cx,size,SWP_NOACTIVATE|SWP_NOZORDER);
+			position->y+=size; position->cy=max(0,position->cy-size);
+		}
+		SetProp(button,PLACED_PROPERTY,(HANDLE)1);
 	}
-	else
-	{
-		SetWindowPos(button,NULL,position->x,position->y,position->cx,size,SWP_NOACTIVATE|SWP_NOZORDER);
-		position->y+=size; position->cy=max(0,position->cy-size);
-	}
-	SetProp(button,L"OpenShell.RecyclePlaced",(HANDLE)1);
 }
 
-void UpdateTaskbarWidgets( HWND taskbar, HWND rebar, bool recycle, bool everything, int searchWidth, bool hideGrips, bool cleanup )
+void UpdateTaskbarWidgets( HWND taskbar, HWND rebar, bool recycle, bool everything, int searchWidth, bool hideGrips, bool cleanup, bool remoteStart )
 {
 	if (!IsWindow(rebar) || GetWindowThreadProcessId(rebar,NULL)!=GetCurrentThreadId()) return;
 	static bool updating=false;
@@ -176,6 +287,16 @@ void UpdateTaskbarWidgets( HWND taskbar, HWND rebar, bool recycle, bool everythi
 		SetTimer(taskbar,'OSWE',2000,NULL);
 	}
 	if (state && cleanup) { state->hideGrips=false; state->everything=false; }
+	wchar_t taskbarClass[64]; GetClassName(taskbar,taskbarClass,_countof(taskbarClass));
+	bool primary=_wcsicmp(taskbarClass,L"Shell_TrayWnd")==0;
+	if (state && !state->retrying)
+	{
+		// The red remote Start button lives on the main taskbar and follows RemoteApp windows
+		state->remoteStart=remoteStart && primary && !cleanup;
+		if (state->remoteStart) SetTimer(taskbar,'OSRS',1500,NULL);
+		else KillTimer(taskbar,'OSRS');
+		if (!s_RemoteMenuOpen) UpdateRemoteButton(taskbar,rebar,state->remoteStart && IsRemoteAppSessionActive() && HasRemoteStartMenus());
+	}
 	HWND button=(HWND)GetProp(taskbar,RECYCLE_PROPERTY);
 	if (recycle && !IsWindow(button))
 	{
@@ -192,13 +313,11 @@ void UpdateTaskbarWidgets( HWND taskbar, HWND rebar, bool recycle, bool everythi
 	}
 	else if (!recycle && IsWindow(button))
 	{
-		RECT rect=UnreservedRect(taskbar,rebar,button);
+		RECT rect=UnreservedRect(taskbar,rebar);
 		RemoveProp(taskbar,RECYCLE_PROPERTY); DestroyWindow(button);
 		SetWindowPos(rebar,NULL,rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top,SWP_NOZORDER|SWP_NOACTIVATE);
 	}
 
-	wchar_t taskbarClass[64]; GetClassName(taskbar,taskbarClass,_countof(taskbarClass));
-	bool primary=_wcsicmp(taskbarClass,L"Shell_TrayWnd")==0;
 	CComPtr<IBandSite> site;
 	if (primary && SUCCEEDED(site.CoCreateInstance(CLSID_TrayBandSiteService)))
 	{
@@ -253,7 +372,7 @@ void UpdateTaskbarWidgets( HWND taskbar, HWND rebar, bool recycle, bool everythi
 	}
 	if (cleanup && state)
 	{
-		KillTimer(taskbar,'OSWE'); RemoveWindowSubclass(taskbar,WidgetParentProc,'OSRW'); delete state;
+		KillTimer(taskbar,'OSWE'); KillTimer(taskbar,'OSRS'); RemoveWindowSubclass(taskbar,WidgetParentProc,'OSRW'); delete state;
 	}
 	updating=false;
 }

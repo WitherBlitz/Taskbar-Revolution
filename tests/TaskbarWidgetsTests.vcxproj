@@ -10,7 +10,7 @@
     <ClCompile><AdditionalIncludeDirectories>..\Src\Lib;..\Src\StartMenu\StartMenuDLL;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><PrecompiledHeader>NotUsing</PrecompiledHeader><RuntimeLibrary>MultiThreaded</RuntimeLibrary><WarningLevel>Level3</WarningLevel><PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
     <Link><SubSystem>Console</SubSystem><AdditionalDependencies>comctl32.lib;shell32.lib;ole32.lib;uuid.lib;uxtheme.lib;shlwapi.lib;oleacc.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="TaskbarWidgetsTests.cpp"/><ClCompile Include="..\Src\StartMenu\StartMenuDLL\TaskbarWidgets.cpp"/></ItemGroup>
+  <ItemGroup><ClCompile Include="TaskbarWidgetsTests.cpp"/><ClCompile Include="..\Src\StartMenu\StartMenuDLL\TaskbarWidgets.cpp"/><ClCompile Include="..\Src\StartMenu\StartMenuDLL\RemoteStartMenu.cpp"/></ItemGroup>
   <ItemGroup><ProjectReference Include="..\Src\Lib\Lib.vcxproj"><Project>{D42FE717-485B-492D-884A-1999F6D51154}</Project></ProjectReference></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
 </Project>

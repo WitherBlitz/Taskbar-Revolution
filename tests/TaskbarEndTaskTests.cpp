@@ -16,6 +16,16 @@ static bool SameRect( const RECT &a, LONG left, LONG top, LONG right, LONG botto
 	return a.left==left && a.top==top && a.right==right && a.bottom==bottom;
 }
 
+static HWND OwnOverlay( void )
+{
+	for (HWND window=FindWindowEx(NULL,NULL,L"OpenShell.EndTaskOverlay",NULL);window;window=FindWindowEx(NULL,window,L"OpenShell.EndTaskOverlay",NULL))
+	{
+		DWORD pid=0; GetWindowThreadProcessId(window,&pid);
+		if (pid==GetCurrentProcessId()) return window;
+	}
+	return NULL;
+}
+
 int main( void )
 {
 	// Button names
@@ -94,10 +104,10 @@ int main( void )
 	UpdateTaskbarEndTask(taskbar,true);
 	UpdateTaskbarEndTask(taskbar,true);
 	SendMessage(list,WM_RBUTTONUP,0,MAKELPARAM(5,5)); // not a real taskbar button: must be ignored
-	HWND overlay=FindWindow(L"OpenShell.EndTaskOverlay",NULL);
+	HWND overlay=OwnOverlay();
 	Check(overlay && !IsWindowVisible(overlay),"a right-click off a running button shows nothing");
 	UpdateTaskbarEndTask(taskbar,false);
-	Check(!FindWindow(L"OpenShell.EndTaskOverlay",NULL),"turning it off removes the End task window");
+	Check(!OwnOverlay(),"turning it off removes the End task window");
 	DestroyWindow(taskbar);
 
 	return failures?1:0;

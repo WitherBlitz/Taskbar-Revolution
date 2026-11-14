@@ -2499,7 +2499,7 @@ void UpdateTaskBars( TUpdateTaskbar update )
 	for (id_taskbar_map::iterator it=g_TaskbarInfos.begin();it!=g_TaskbarInfos.end();++it)
 	{
 		TaskbarInfo &taskBar=it->second;
-		UpdateTaskbarWidgets(taskBar.taskBar,taskBar.rebar,update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarRecycleBin"),GetSettingBool(L"TaskbarEverything"),GetSettingInt(L"TaskbarSearchWidth"),update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarHideGrips"),update==TASKBAR_CLEAR);
+		UpdateTaskbarWidgets(taskBar.taskBar,taskBar.rebar,update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarRecycleBin"),GetSettingBool(L"TaskbarEverything"),GetSettingInt(L"TaskbarSearchWidth"),update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarHideGrips"),update==TASKBAR_CLEAR,update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarRemoteStart"));
 		UpdateTaskbarEndTask(taskBar.taskBar,update!=TASKBAR_CLEAR && GetSettingBool(L"TaskbarEndTask"));
 		bool bButton2=bButton && (bAll || taskBar.taskBar==g_TaskBar);
 		bool bHideButton2=bButton;

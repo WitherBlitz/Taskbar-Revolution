@@ -91,6 +91,7 @@
     <ClCompile Include="TouchHelper.cpp" />
     <ClCompile Include="TaskbarWidgets.cpp" />
     <ClCompile Include="TaskbarEndTask.cpp" />
+    <ClCompile Include="RemoteStartMenu.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Accessibility.h" />
@@ -114,6 +115,7 @@
     <ClInclude Include="TouchHelper.h" />
     <ClInclude Include="TaskbarWidgets.h" />
     <ClInclude Include="TaskbarEndTask.h" />
+    <ClInclude Include="RemoteStartMenu.h" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\..\Setup\OpenShell.ico" />
